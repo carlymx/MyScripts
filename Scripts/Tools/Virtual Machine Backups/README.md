@@ -1,4 +1,7 @@
 
+
+![script_preview](https://github.com/user-attachments/assets/2e400cf1-91b1-426e-af10-125e74ca526c)
+
 # Respaldos de Máquinas Virtuales QEMU
 
 **Introducción**
