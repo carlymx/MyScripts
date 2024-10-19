@@ -1,6 +1,7 @@
+"""
 ###############################################################################
 ##                        QEMU VIRTUAL MACHINE BACKUPS                       ##
-##                            version: 0.3.4 Stable                          ##
+##                              version: 0.3.6 dev                           ##
 ##                          CaRLyMx - 18 Octubre 2024                        ##
 ###############################################################################
 
@@ -8,11 +9,13 @@
 ## ESTE SCRIPT DE PYTHON3 ABRE UNA VENTANA CON TKINTER.
 ## MUESTRA TODAS LAS MAQUINAS VIRTUALES DENTRO DEL SISTEMA ADMINISTRADAS POR QEMU/VIRT MANAGER.
 ## PERMITE SELECCIONAR DE LA LISTA LAS QUE SE QUIERE CREAR UNA COPIA DE SEGURIDAD Y SU DESTINO LOCAL.
-## PERMITE GUARDAR LAS INSTANTANEAS (SOLO XML DE MOMENTO).
+## PERMITE GUARDAR LAS INSTANTANEAS TANTO INTERNAS COMO EXTERNAS Y SUS ARCHIVOS XML DE CONFIGURACIÓN.
 
 ## DEPENDENCIAS:
 ## EN DISTRIBUCIONES DEBIAN (APT):
 ## sudo apt install libvirt-clients virt-manager virt-viewer python3-tk
+"""
+
 
 import os
 import subprocess
@@ -26,7 +29,10 @@ class BackupVMApp:
     def __init__(self, root):
         self.root = root
         self.root.title("QEMU MV Backups")
-        self.root.geometry("600x500")
+        self.root.geometry("550x650")
+
+        # Crear la cola para pasar mensajes desde el proceso al hilo principal
+        self.log_queue = multiprocessing.Queue()
 
         # Cargar la ruta de backups (antes de crear las pestañas)
         self.backup_dir = self.load_backup_directory()
@@ -47,6 +53,9 @@ class BackupVMApp:
         # Procedimiento para cargar las MVs e instantáneas
         self.load_virtual_machines()
 
+        # Iniciar la actualización de la terminal en el hilo principal
+        self.update_terminal()
+
     def create_menu(self):
         """Crear el menú con las opciones Archivo > Salir y Acerca de"""
         menubar = tk.Menu(self.root)
@@ -62,7 +71,7 @@ class BackupVMApp:
 
     def show_about(self):
         """Mostrar la ventana Acerca de"""
-        messagebox.showinfo("Acerca de", "QEMU MV Backups\nVersión 0.3.4\nFecha: 15-10-2024")
+        messagebox.showinfo("Acerca de", "QEMU MV Backups\nVersión 0.3.6\nFecha: 19-10-2024")
 
     def create_tabs(self):
         """Crear las pestañas Crear copia de seguridad y Opciones avanzadas"""
@@ -74,21 +83,45 @@ class BackupVMApp:
         self.backup_dir_label = tk.Label(self.backup_tab, text="Directorio de Backups:")
         self.backup_dir_label.pack(pady=5)
 
-        self.backup_dir_entry = tk.Entry(self.backup_tab, width=50)
-        self.backup_dir_entry.pack(pady=5)
+        path_frame = tk.Frame(self.backup_tab)
+        path_frame.pack(pady=5)
+
+        self.backup_dir_entry = tk.Entry(path_frame, width=50)
+        self.backup_dir_entry.pack(side=tk.LEFT, padx=5)
         self.backup_dir_entry.insert(0, self.backup_dir)  # Mostrar ruta predeterminada
 
-        self.browse_button = tk.Button(self.backup_tab, text="Seleccionar Carpeta", command=self.browse_backup_directory)
-        self.browse_button.pack(pady=5)
+        self.browse_button = tk.Button(path_frame, text="Seleccionar Destino", command=self.browse_backup_directory)
+        self.browse_button.pack(side=tk.LEFT)
 
         # Treeview para mostrar MVs y sus instantáneas en columnas
         self.vm_tree = ttk.Treeview(self.backup_tab, columns=("VM", "Internas", "Externas"), show="headings")
         self.vm_tree.heading("VM", text="Máquina Virtual")
-        self.vm_tree.heading("Internas", text="Insts Inter")
+        self.vm_tree.heading("Internas", text="snap Inter")
         self.vm_tree.column("Internas", width=25, anchor=tk.CENTER)
-        self.vm_tree.heading("Externas", text="Insts Ext")
+        self.vm_tree.heading("Externas", text="snap Ext")
         self.vm_tree.column("Externas", width=25, anchor=tk.CENTER)
         self.vm_tree.pack(pady=20, padx=20, fill="both", expand=True)
+
+        # Terminal de progreso
+        self.progress_terminal = tk.Text(self.backup_tab, height=10, state='disabled', bg='black', fg='#00FF00', font=("Courier", 10))
+        self.progress_terminal.pack(pady=10, padx=20, fill="both", expand=True)
+
+        # Habilitar el terminal temporalmente para insertar el texto
+        self.progress_terminal.config(state='normal')
+        self.progress_terminal.insert(tk.END, " QEMU Virtual Machine Backups - v0.3.6 Stable\n")
+        self.progress_terminal.config(state='disabled')  # Deshabilitar de nuevo para evitar que el usuario edite
+
+        # Pestaña 2: Opciones avanzadas
+        self.advanced_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.advanced_tab, text="Opciones Avanzadas")
+
+        # Opción "Copiar Instantáneas" en la pestaña "Opciones Avanzadas"
+        advanced_frame = tk.Frame(self.advanced_tab)
+        advanced_frame.pack(pady=20, padx=20, anchor="w")  # Añadir margen y justificar a la izquierda
+
+        self.copy_snapshots = tk.BooleanVar()
+        self.copy_snapshots_check = tk.Checkbutton(advanced_frame, text="Copiar Instantáneas", variable=self.copy_snapshots)
+        self.copy_snapshots_check.pack(side=tk.LEFT)
 
     def create_action_buttons(self):
         """Crear los botones Crear Copia de Seguridad, Cancelar y Salir"""
@@ -206,15 +239,16 @@ class BackupVMApp:
 
     def start_backup_process(self):
         """Iniciar un proceso separado para la copia de seguridad"""
-        self.backup_process = multiprocessing.Process(target=self.create_backup)
+        self.backup_process = multiprocessing.Process(target=self.create_backup, args=(self.log_queue,))
         self.backup_process.start()
 
-    def create_backup(self):
-        """Realiza la copia de seguridad de las MVs seleccionadas"""
+
+    def create_backup(self, log_queue):
+        """Realiza la copia de seguridad de las MVs seleccionadas y copia instantáneas si está seleccionado"""
         selected_items = self.vm_tree.selection()  # Obtener las MVs seleccionadas en el Treeview
 
         if not selected_items:
-            messagebox.showwarning("Advertencia", "No se ha seleccionado ninguna MV.")
+            log_queue.put("Advertencia: No se ha seleccionado ninguna MV.")
             return
 
         backup_dir = self.backup_dir_entry.get()
@@ -224,28 +258,93 @@ class BackupVMApp:
 
         for item in selected_items:
             vm_name = self.vm_tree.item(item, "values")[0]  # Obtener el nombre de la MV
-            self.log(f"Creando copia de seguridad para {vm_name}")
+            log_queue.put(f"Creando copia de seguridad para {vm_name}")
 
             try:
                 # Copiar el archivo XML de la MV
                 xml_path = os.path.join(backup_dir, f"{vm_name}.xml")
                 with open(xml_path, "w") as xml_file:
                     subprocess.run(['virsh', 'dumpxml', vm_name], stdout=xml_file)
-                self.log(f"Archivo XML de {vm_name} copiado a {xml_path}")
+                log_queue.put(f"Archivo XML de {vm_name} copiado a {xml_path}")
 
                 # Copiar el archivo QCOW2 asociado
                 disk_path = self.get_disk_path(vm_name)
                 if disk_path and os.path.exists(disk_path):
                     disk_backup_path = os.path.join(backup_dir, os.path.basename(disk_path))
                     shutil.copy2(disk_path, disk_backup_path)
-                    self.log(f"Archivo QCOW2 de {vm_name} copiado a {disk_backup_path}")
+                    log_queue.put(f"Archivo QCOW2 de {vm_name} copiado a {disk_backup_path}")
                 else:
-                    self.log(f"Error: No se encontró el disco para {vm_name}")
+                    log_queue.put(f"Error: No se encontró el disco para {vm_name}")
+
+                # Si está seleccionada la opción de "Copiar Instantáneas"
+                if self.copy_snapshots.get():
+                    snapshots = self.get_snapshots(vm_name)
+                    if snapshots["internas"]:
+                        log_queue.put(f"Copiando instantáneas internas de {vm_name}")
+                        # Copiar los XML de las instantáneas internas
+                        self.copy_internal_snapshots(vm_name, backup_dir, log_queue)
+
+                    if snapshots["externas"]:
+                        log_queue.put(f"Copiando instantáneas externas de {vm_name}")
+                        # Copiar los archivos y XML de las instantáneas externas
+                        self.copy_external_snapshots(snapshots["externas"], backup_dir, log_queue)
 
             except Exception as e:
-                self.log(f"Error creando la copia de seguridad para {vm_name}: {str(e)}")
+                log_queue.put(f"Error creando la copia de seguridad para {vm_name}: {str(e)}")
 
-        self.log("Copia de seguridad completada.")
+        log_queue.put("Copia de seguridad completada.")
+
+
+    def copy_internal_snapshots(self, vm_name, backup_dir, log_queue):
+        """Copiar los XML de las instantáneas internas de una MV usando virsh"""
+        try:
+            # Ejecutar virsh snapshot-list para obtener las instantáneas internas
+            result = subprocess.run(['virsh', 'snapshot-list', vm_name], capture_output=True, text=True)
+            snapshot_list = result.stdout.splitlines()
+
+            if len(snapshot_list) > 2:  # Si hay más de dos líneas (cabecera + al menos una instantánea)
+                for line in snapshot_list[2:]:
+                    # Verificar si la línea no está vacía o tiene contenido válido
+                    columns = line.split()
+                    if len(columns) > 0:  # Solo procesar si hay al menos un campo (nombre de instantánea)
+                        snapshot_name = columns[0]  # El primer campo es el nombre de la instantánea
+
+                        # Obtener el XML de la instantánea interna usando virsh snapshot-dumpxml
+                        snapshot_xml = subprocess.run(
+                            ['virsh', 'snapshot-dumpxml', vm_name, snapshot_name],
+                            capture_output=True, text=True
+                        ).stdout
+
+                        # Guardar el archivo XML en el directorio de backups
+                        snapshot_xml_file = os.path.join(backup_dir, f"{snapshot_name}.xml")
+                        with open(snapshot_xml_file, 'w') as f:
+                            f.write(snapshot_xml)
+                        log_queue.put(f"Archivo XML de instantánea interna {snapshot_name} copiado a {snapshot_xml_file}")
+            else:
+                log_queue.put(f"No se encontraron instantáneas internas para {vm_name}")
+        except Exception as e:
+            log_queue.put(f"Error al copiar instantáneas internas: {e}")
+
+
+
+    def copy_external_snapshots(self, external_snapshots, backup_dir, log_queue):
+        """Copiar los archivos QCOW2 y los XML asociados a las instantáneas externas"""
+        for qcow2_file in external_snapshots:
+            # Copiar el archivo QCOW2
+            qcow2_backup_path = os.path.join(backup_dir, os.path.basename(qcow2_file))
+            shutil.copy2(qcow2_file, qcow2_backup_path)
+            log_queue.put(f"Archivo QCOW2 de instantánea externa copiado a {qcow2_backup_path}")
+
+            # Buscar el archivo XML de la instantánea externa (mismo nombre que el QCOW2 pero con extensión .xml)
+            xml_file = qcow2_file.replace(".qcow2", ".xml")
+            if os.path.exists(xml_file):
+                xml_backup_path = os.path.join(backup_dir, os.path.basename(xml_file))
+                shutil.copy2(xml_file, xml_backup_path)
+                log_queue.put(f"Archivo XML de instantánea externa copiado a {xml_backup_path}")
+            else:
+                log_queue.put(f"No se encontró archivo XML para la instantánea externa {qcow2_file}")
+
+
 
     def cancel_backup_process(self):
         """Terminar el proceso de copia de seguridad si está corriendo"""
@@ -257,9 +356,29 @@ class BackupVMApp:
         """Gestionar errores"""
         messagebox.showerror("Error", message)
 
+    def update_terminal(self):
+        """Actualizar la terminal de progreso leyendo la cola"""
+        try:
+            # Obtener el mensaje de la cola (si lo hay)
+            message = self.log_queue.get_nowait()
+        except multiprocessing.queues.Empty:
+            self.root.after(100, self.update_terminal)  # Reintentar después de 100ms
+        else:
+            # Si hay un mensaje, actualizar la terminal
+            self.progress_terminal.config(state='normal')
+            self.progress_terminal.insert(tk.END, message + '\n')
+            self.progress_terminal.config(state='disabled')
+            self.progress_terminal.see(tk.END)
+            self.root.after(100, self.update_terminal)  # Continuar escuchando
+
+
     def log(self, message):
-        """Escribe mensajes de log en la consola o terminal"""
-        print(message)
+        """Escribe mensajes de log en la terminal y consola"""
+        self.progress_terminal.config(state='normal')
+        self.progress_terminal.insert(tk.END, message + '\n')
+        self.progress_terminal.config(state='disabled')
+        self.progress_terminal.see(tk.END)  # Desplazar al final
+        print(message)  # También imprimir en la consola
 
 # Crear la ventana principal
 if __name__ == "__main__":
