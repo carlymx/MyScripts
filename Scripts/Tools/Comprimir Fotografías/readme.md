@@ -6,11 +6,13 @@ Este script es una herramienta de Python para procesar y comprimir imágenes JPG
 
 Configuración y Registro (LOG) 📝: Al inicio, el script configura un sistema de registro (logging) que crea un archivo (.log) para documentar detalladamente todo el proceso, incluyendo la ruta de los archivos procesados y los errores que puedan surgir. Esto es útil para auditar o depurar el proceso.
 
-   Entrada de datos por el usuario 🧑‍💻: El programa solicita al usuario la siguiente información:
-      Directorio de origen: La carpeta donde se encuentran las imágenes a analizar.
-      Directorio de destino: La carpeta donde se guardarán las copias comprimidas.
-      Tamaño límite (KB): El umbral de tamaño de archivo. Las imágenes que lo superen serán consideradas "grandes" y candidatas a compresión.
-      Tasa de compresión (%): La calidad de compresión que se aplicará a las imágenes (ej. 70% significa 70% de la calidad original).
+Entrada de datos por el usuario 🧑‍💻: El programa solicita al usuario la siguiente información:
+   Directorio de origen: La carpeta donde se encuentran las imágenes a analizar.
+   Directorio de destino: La carpeta donde se guardarán las copias comprimidas.
+
+   
+Tamaño límite (KB): El umbral de tamaño de archivo. Las imágenes que lo superen serán consideradas "grandes" y candidatas a compresión.
+Tasa de compresión (%): La calidad de compresión que se aplicará a las imágenes (ej. 70% significa 70% de la calidad original).
         Opción de compresión: Se pregunta si se desea guardar las copias comprimidas o solo identificar los archivos grandes.
     Procesamiento de imágenes 🖼️:
         El script recorre de forma recursiva el directorio de origen y sus subcarpetas en busca de archivos .jpg y .jpeg.
