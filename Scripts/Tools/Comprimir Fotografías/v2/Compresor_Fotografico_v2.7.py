@@ -1,8 +1,8 @@
 ##################################################################
+#                                                                #
 #                   COMPRESOR DE FOTOGRAFÍAS                     #
 #                    V2.7 (11 AGOSTO 2025)                       #
 #             Carlos Hernández - carlymx@gmail.com               #
-#                                                                #
 #                                                                #
 ##################################################################
 
@@ -43,8 +43,7 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def print_banner():
-    banner = r"""
-   ____                                  _             _            
+    banner = r"""   ____                                  _             _            
   / ___|___  _ __ ___  _ __   ___  _ __| |_ _   _  __| | ___ _ __  
  | |   / _ \| '_ ` _ \| '_ \ / _ \| '__| __| | | |/ _` |/ _ \ '__| 
  | |__| (_) | | | | | | |_) | (_) | |  | |_| |_| | (_| |  __/ |    
@@ -52,8 +51,9 @@ def print_banner():
                       |_|                                          
     """
     print(Fore.CYAN + banner)
-    print(Fore.YELLOW + "Versión 2.5 - Compresor Fotográfico")
-    print(Fore.YELLOW + "-----------------------------------\n" + Style.RESET_ALL)
+    print(Fore.YELLOW + "Compresor Fotográfico v2.7 (11 Ago 2025)")
+    print(Fore.YELLOW + "  Carlos Hernández - carlymx@gmail.com")
+    print(Fore.YELLOW + "------------------------------------------\n" + Style.RESET_ALL)
 
 def setup_logger(log_file):
     logger = logging.getLogger('image_processor')
@@ -97,10 +97,12 @@ def detect_os():
 
 def scan_directory(src_dir):
     file_types = {}
+    valid_exts = ["jpg", "jpeg", "png", "tiff", "bmp", "gif", "raw", "nef", "cr2", "arw"]
     for root, _, files in os.walk(src_dir):
         for file in files:
             ext = file.lower().split('.')[-1]
-            file_types[ext] = file_types.get(ext, 0) + 1
+            if ext in valid_exts:
+                file_types[ext] = file_types.get(ext, 0) + 1
     return file_types
 
 def choose_option(prompt, options, default_index=0):
@@ -179,8 +181,18 @@ if __name__ == "__main__":
     clear_screen()
     print_banner()
 
-    src_dir = get_input("Ingrese el directorio a procesar: ")
-    file_summary = scan_directory(src_dir)
+    while True:
+        src_dir = get_input("Ingrese el directorio a procesar: ")
+        file_summary = scan_directory(src_dir)
+        if not file_summary:
+            choice = get_input(Fore.RED + "No se han encontrado imágenes compatibles en el directorio indicado. ¿Desea ingresar otro directorio? (S/n): " + Style.RESET_ALL, "S").lower()
+            if choice != "s":
+                print(Fore.RED + "Saliendo del programa..." + Style.RESET_ALL)
+                sys.exit()
+            else:
+                continue
+        break
+
     print(Fore.CYAN + "Resumen de archivos encontrados:" + Style.RESET_ALL)
     for ext, count in file_summary.items():
         print(Fore.CYAN + f"{count} archivos en formato {ext.upper()}" + Style.RESET_ALL)
