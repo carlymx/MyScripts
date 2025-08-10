@@ -1,6 +1,5 @@
 [📹 Ver video del funcionamiento](https://i.imgur.com/HMyX58j.mp4)
 
-
 # Conversor y Compresor de Imágenes RAW a Formatos Comunes
 
 ## 📌 Descripción
@@ -71,4 +70,3 @@ Tamaño límite en KB (0 para todas) [0]: 2048
 ```
 
 Al finalizar, se obtendrán las imágenes convertidas en la carpeta indicada y un `.log` con el historial del proceso.
-
