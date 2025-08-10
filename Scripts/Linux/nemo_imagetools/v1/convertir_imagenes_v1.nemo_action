@@ -1,0 +1,7 @@
+[Nemo Action]
+Name=Convertir/Recomprimir imágenes
+Comment=Convertir o recomprimir imágenes seleccionadas
+Exec=/home/carly/Documentos/Scripts/Tools/nemo_imagetools/v1/nemo_imagetools_v1.sh %F
+Icon-Name=image-x-generic
+Selection=Any
+Extensions=png;jpg;jpeg;bmp;gif;tiff;webp;

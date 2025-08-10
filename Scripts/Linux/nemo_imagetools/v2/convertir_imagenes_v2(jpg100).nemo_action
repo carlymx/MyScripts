@@ -1,0 +1,8 @@
+[Nemo Action]
+Name=JPG 100% Calidad
+Comment=Convertir imágenes a JPG con 100% de calidad
+Exec=/home/carly/Documentos/Scripts/Tools/nemo_imagetools/v2/nemo_imagetools_v2.sh jpg100 %F
+Icon-Name=image-jpeg
+Selection=Any
+Extensions=png;jpg;jpeg;bmp;gif;tiff;webp;
+Nemo-Action-Submenu="Convertir/Recomprimir imágenes"

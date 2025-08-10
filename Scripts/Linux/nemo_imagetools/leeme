@@ -1,0 +1,29 @@
+Instalar ImageMagic y pngquant
+    sudo apt install imagemagick pngquant
+
+V1:
+
+copiar/enlazar > convertir_imagenes.nemo_action a ~/.local/share/nemo/actions/
+
+Editar localización del script
+
+Reiniciar Nemo con:
+    nemo -q
+
+Usar ;)
+
+-------------------------------------------------------------------------------------
+
+V2:
+
+Copiar o Enlazar "*.nemo_action" al directorio "~/.local/share/nemo/actions/"
+
+Editar localización del Script "nemo_imagetools_v2.sh"
+
+Organizar y crear submenu con las nuevas acciones (ver captura adjunta):
+    NEMO > MENU > Editar > Preferencias > Complementos > Botón "Editar Diseño" 
+
+Reiniciar Nemo con:
+    nemo -q
+
+Usar ;)
