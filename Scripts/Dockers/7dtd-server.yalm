@@ -1,0 +1,51 @@
+services:
+  7dtdserver:
+    container_name: 7dtdserver
+    environment:
+      - LINUXGSM_VERSION=v24.3.4
+      - START_MODE=3
+      - VERSION=stable
+      - PUID=1000
+      - PGID=1000
+      - TimeZone=Europe/Madrid
+      - TEST_ALERT=NO
+      - UPDATE_MODS=NO
+      - MODS_URLS=""
+      - ALLOC_FIXES=NO
+      - ALLOC_FIXES_UPDATE=NO
+      - UNDEAD_LEGACY=NO
+      - UNDEAD_LEGACY_VERSION=stable
+      - UNDEAD_LEGACY_UPDATE=NO
+      - DARKNESS_FALLS=NO
+      - DARKNESS_FALLS_UPDATE=NO
+      - DARKNESS_FALLS_URL=False
+      - CPM=NO
+      - CPM_UPDATE=NO
+      - BEPINEX=NO
+      - BEPINEX_UPDATE=NO
+      - BACKUP=NO
+      - BACKUP_HOUR=5
+      - BACKUP_MAX=7
+      - MONITOR=NO
+    image: vinanrra/7dtd-server
+    ports:
+      - 26900:26900/tcp
+      - 26900:26900/udp
+      - 26901:26901/udp
+      - 26902:26902/udp
+      - 8080:8080/tcp
+      - 8081:8081/tcp
+      - 8082:8082/tcp
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        hard: '10240'
+        soft: '10240'
+    volumes:
+      - /mnt/APPs/7DTD-server/saves:/home/sdtdserver/.local/share/7DaysToDie/
+      - >-
+        /mnt/APPs/7DTD-server/config:/home/sdtdserver/lgsm/config-lgsm/sdtdserver
+      - /mnt/APPs/7DTD-server/serverfiles:/home/sdtdserver/serverfiles/
+      - /mnt/APPs/7DTD-server/logs:/home/sdtdserver/log/
+      - /mnt/APPs/7DTD-server/backups:/home/sdtdserver/lgsm/backup/
+

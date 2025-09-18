@@ -1,0 +1,23 @@
+version: "2.1"
+services:
+  projectzomboid:
+    image: gameservermanagers/gameserver:pz
+    container_name: pzserver
+    volumes:
+      - /mnt/APPs/pzserver:/data
+    ports:
+      - "16261:16261/udp"
+      - "16262:16262/udp"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - HOSTNAME=PZ Server
+      - UPDATE_ON_RESTART=true
+      - GAMESERVER=pzserver
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
