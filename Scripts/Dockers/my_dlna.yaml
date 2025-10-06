@@ -6,6 +6,7 @@ services:
       - MINIDLNA_FRIENDLY_NAME=MyDLNA
     image: vladgh/minidlna
     network_mode: host
+    restart: always
     volumes:
-      - /mnt/ALMACEN2T/videos:/media
+      - /mnt/videos:/media
 
