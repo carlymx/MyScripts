@@ -20,6 +20,7 @@ El script `desisntalar_QwenCli.sh` proporciona una solución de limpieza complet
 ```bash
 # Hacer el script ejecutable
 chmod +x desisntalar_QwenCli.sh
+```
 
 # Ejecutar el desinstalador
 ./desisntalar_QwenCli.sh

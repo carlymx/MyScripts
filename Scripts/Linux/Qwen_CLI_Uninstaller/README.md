@@ -21,6 +21,7 @@ The `desisntalar_QwenCli.sh` script provides a complete cleanup solution for:
 ```bash
 # Make the script executable
 chmod +x desisntalar_QwenCli.sh
+```
 
 # Run the uninstaller
 ./desisntalar_QwenCli.sh
