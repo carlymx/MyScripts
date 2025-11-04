@@ -1,0 +1,1387 @@
+#!/usr/bin/env python3
+##################################################################
+#                                                                #
+#                PYGINX - Nginx GUI Manager                      #
+#                   V1.0 (04 NOV 2025)                           #
+#               CaRLyMx - carlymx@gmail.com                      #
+#                                                                #
+##################################################################
+
+"""
+Pyginx - GUI para gestión de servidores Nginx
+
+Este script proporciona una interfaz gráfica para gestionar servidores Nginx
+en Linux, permitiendo encender/apagar el servidor, verificar estado y puertos,
+ver logs, editar archivos de configuración y manejar perfiles de configuración.
+"""
+
+# Importación de bibliotecas estándar
+import os
+import sys
+import platform
+import subprocess
+import logging
+import threading
+from datetime import datetime
+from pathlib import Path
+from getpass import getuser
+
+# Importación de bibliotecas GUI
+try:
+    from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                               QHBoxLayout, QPushButton, QTextEdit, QLabel, QLineEdit,
+                               QTabWidget, QMenuBar, QMenu, QAction, QGroupBox,
+                               QFormLayout, QCheckBox, QSpinBox, QFileDialog,
+                               QMessageBox, QComboBox, QScrollArea)
+    from PyQt5.QtCore import QThread, pyqtSignal, Qt
+    from PyQt5.QtGui import QFont, QIcon
+except ImportError:
+    print("Error: PyQt5 no está instalado. Instala con 'pip install PyQt5'")
+    sys.exit(1)
+
+
+def check_and_setup_virtual_env():
+    """Crear y activar un entorno virtual si no existe, e instalar dependencias"""
+    venv_dir = Path(".pyginx_env")
+    
+    # Verificar si estamos en el entorno virtual
+    in_venv = sys.prefix != sys.base_prefix or hasattr(sys, 'real_prefix')
+    
+    if not in_venv:
+        # Verificar si el entorno virtual ya existe
+        if not venv_dir.exists():
+            print("Creando entorno virtual...")
+            try:
+                subprocess.check_call([sys.executable, '-m', 'venv', str(venv_dir)])
+                print("Entorno virtual creado exitosamente.")
+            except subprocess.CalledProcessError:
+                print("Error al crear el entorno virtual.")
+                sys.exit(1)
+        else:
+            print("Entorno virtual ya existe.")
+        
+        # Determinar la ruta del ejecutable de Python en el entorno virtual
+        if platform.system() == "Windows":
+            python_exe = venv_dir / "Scripts" / "python.exe"
+        else:
+            python_exe = venv_dir / "bin" / "python"
+        
+        # Instalar paquetes necesarios
+        required_packages = ['PyQt5', 'colorama']
+        print("Instalando paquetes en el entorno virtual...")
+        
+        try:
+            subprocess.check_call([str(python_exe), '-m', 'pip', 'install'] + required_packages)
+            print("Paquetes instalados correctamente en el entorno virtual.")
+        except subprocess.CalledProcessError:
+            print("Error al instalar paquetes en el entorno virtual.")
+            sys.exit(1)
+        
+        # Reiniciar el script en el entorno virtual
+        print("Reiniciando en el entorno virtual...")
+        subprocess.call([str(python_exe), __file__] + sys.argv[1:])
+        sys.exit(0)
+    else:
+        print("Ejecutando en entorno virtual.")
+        return sys.executable
+
+
+def check_dependencies():
+    """Verificar e instalar dependencias si es necesario"""
+    required_packages = {
+        'PyQt5': 'PyQt5',
+        'colorama': 'colorama'
+    }
+    
+    missing_packages = []
+    
+    for package_name, import_name in required_packages.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing_packages.append(package_name)
+    
+    if missing_packages:
+        print(f"{Fore.YELLOW}Instalando paquetes faltantes: {', '.join(missing_packages)}")
+        try:
+            # Si estamos en el entorno virtual, usar el python del entorno
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing_packages)
+            print(f"{Fore.GREEN}Paquetes instalados correctamente.")
+        except subprocess.CalledProcessError:
+            print(f"{Fore.RED}Error al instalar paquetes. Por favor instale manualmente:")
+            for pkg in missing_packages:
+                print(f"  pip install {pkg}")
+            sys.exit(1)
+
+
+def clear_screen():
+    """Limpiar la pantalla según el sistema operativo"""
+    if platform.system() == "Windows":
+        os.system('cls')
+    else:
+        os.system('clear')
+
+
+def setup_logger(log_file_path=None):
+    """Configurar sistema de logging"""
+    if log_file_path is None:
+        log_file_path = f"pyginx_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    
+    # Crear directorio de logs si no existe
+    log_dir = Path(log_file_path).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Configurar logger
+    logger = logging.getLogger('pyginx_logger')
+    logger.setLevel(logging.INFO)
+    
+    # Evitar duplicados de handlers
+    if logger.handlers:
+        logger.handlers.clear()
+    
+    # Handler para archivo
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setLevel(logging.INFO)
+    
+    # Handler para consola
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Formato de logs
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # Agregar handlers al logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+
+# Verificar dependencias y configurar logging después de que estemos en el entorno virtual
+# Estos se llamarán desde la función main()
+
+
+class NginxManager:
+    """Clase para manejar operaciones de Nginx"""
+    def __init__(self, logger=None):
+        self.nginx_process = None
+        self.is_running = False
+        self.config_dir = "/etc/nginx"
+        self.config_file = f"{self.config_dir}/nginx.conf"
+        self.log_dir = "/var/log/nginx"
+        self.access_log = f"{self.log_dir}/access.log"
+        self.error_log = f"{self.log_dir}/error.log"
+        self.root_password = None
+        self.encrypted_password = None
+        self.logger = logger
+
+    def encrypt_password(self, password):
+        """Ofuscar la contraseña de forma simple"""
+        import base64
+        # Codificar como base64 - no es seguro para producción pero cumple el propósito de ofuscación
+        encoded_bytes = base64.b64encode(password.encode('utf-8'))
+        return encoded_bytes.decode('utf-8')
+
+    def decrypt_password(self, encrypted_password):
+        """Desofuscar la contraseña"""
+        import base64
+        try:
+            # Decodificar desde base64
+            decoded_bytes = base64.b64decode(encrypted_password.encode('utf-8'))
+            return decoded_bytes.decode('utf-8')
+        except:
+            return None
+
+    def store_password(self, password):
+        """Almacenar contraseña ofuscada temporalmente"""
+        self.encrypted_password = self.encrypt_password(password)
+        self.root_password = password  # también mantener en memoria durante la sesión
+
+    def get_stored_password(self):
+        """Obtener la contraseña almacenada"""
+        if self.encrypted_password:
+            return self.decrypt_password(self.encrypted_password)
+        return self.root_password
+
+    def check_system(self):
+        """Verificar si el sistema es Linux"""
+        system = platform.system()
+        if system != "Linux":
+            print(f"{Fore.RED}Este script está diseñado para funcionar en Linux.")
+            print(f"{Fore.RED}Sistema detectado: {system}")
+            return False
+        return True
+
+    def check_user_permissions(self):
+        """Verificar si el usuario tiene permisos adecuados"""
+        return os.geteuid() == 0  # Verificar si es root
+
+    def check_nginx_installed(self):
+        """Verificar si Nginx está instalado"""
+        try:
+            result = subprocess.run(["which", "nginx"], 
+                                  capture_output=True, text=True)
+            return result.returncode == 0
+        except:
+            return False
+
+    def start_nginx(self):
+        """Iniciar el servidor Nginx"""
+        try:
+            # Determinar si usar sudo basado en permisos
+            cmd = ["sudo", "systemctl", "start", "nginx"] if not self.check_user_permissions() else ["systemctl", "start", "nginx"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                if self.logger:
+                    self.logger.info("Nginx iniciado exitosamente")
+                self.is_running = True
+                return True, "Nginx iniciado exitosamente"
+            else:
+                if self.logger:
+                    self.logger.error(f"Error al iniciar Nginx: {result.stderr}")
+                return False, f"Error al iniciar Nginx: {result.stderr}"
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al iniciar Nginx: {str(e)}")
+            return False, f"Excepción al iniciar Nginx: {str(e)}"
+
+    def stop_nginx(self):
+        """Detener el servidor Nginx"""
+        try:
+            # Determinar si usar sudo basado en permisos
+            cmd = ["sudo", "systemctl", "stop", "nginx"] if not self.check_user_permissions() else ["systemctl", "stop", "nginx"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                if self.logger:
+                    self.logger.info("Nginx detenido exitosamente")
+                self.is_running = False
+                return True, "Nginx detenido exitosamente"
+            else:
+                if self.logger:
+                    self.logger.error(f"Error al detener Nginx: {result.stderr}")
+                return False, f"Error al detener Nginx: {result.stderr}"
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al detener Nginx: {str(e)}")
+            return False, f"Excepción al detener Nginx: {str(e)}"
+
+    def restart_nginx(self):
+        """Reiniciar el servidor Nginx"""
+        try:
+            # Determinar si usar sudo basado en permisos
+            cmd = ["sudo", "systemctl", "restart", "nginx"] if not self.check_user_permissions() else ["systemctl", "restart", "nginx"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                if self.logger:
+                    self.logger.info("Nginx reiniciado exitosamente")
+                self.is_running = True
+                return True, "Nginx reiniciado exitosamente"
+            else:
+                if self.logger:
+                    self.logger.error(f"Error al reiniciar Nginx: {result.stderr}")
+                return False, f"Error al reiniciar Nginx: {result.stderr}"
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al reiniciar Nginx: {str(e)}")
+            return False, f"Excepción al reiniciar Nginx: {str(e)}"
+
+    def check_nginx_status(self):
+        """Verificar estado del servidor Nginx"""
+        try:
+            # Determinar si usar sudo basado en permisos
+            cmd = ["sudo", "systemctl", "status", "nginx"] if not self.check_user_permissions() else ["systemctl", "status", "nginx"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                # Verificar si realmente está corriendo
+                self.is_running = "active (running)" in result.stdout
+                status_msg = "Nginx está corriendo" if self.is_running else "Nginx no está corriendo"
+                if self.logger:
+                    self.logger.info(f"Estado de Nginx: {status_msg}")
+                return True, status_msg, self.is_running
+            else:
+                if self.logger:
+                    self.logger.error(f"Error al verificar estado de Nginx: {result.stderr}")
+                return False, f"Error al verificar estado: {result.stderr}", False
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al verificar estado de Nginx: {str(e)}")
+            return False, f"Excepción al verificar estado: {str(e)}", False
+
+    def get_nginx_ports(self):
+        """Obtener los puertos en los que Nginx está escuchando"""
+        try:
+            # Buscar en el archivo de configuración los puertos
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    config_content = f.read()
+                
+                # Buscar líneas con 'listen'
+                import re
+                listen_patterns = re.findall(r'listen\s+([0-9]+)(?:\s+ssl)?;', config_content)
+                ports = list(set(listen_patterns))  # Eliminar duplicados
+                
+                if ports:
+                    if self.logger:
+                        self.logger.info(f"Puertos de Nginx detectados: {', '.join(ports)}")
+                    return True, f"Puertos: {', '.join(ports)}", ports
+                else:
+                    if self.logger:
+                        self.logger.info("No se encontraron puertos definidos en la configuración")
+                    return True, "No se encontraron puertos definidos en la configuración", []
+            else:
+                if self.logger:
+                    self.logger.error(f"Archivo de configuración no encontrado: {self.config_file}")
+                return False, f"Archivo de configuración no encontrado: {self.config_file}", []
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al obtener puertos de Nginx: {str(e)}")
+            return False, f"Excepción al obtener puertos: {str(e)}", []
+
+    def check_port_status(self, port):
+        """Verificar si un puerto específico está en uso"""
+        try:
+            # Usar ss o netstat para verificar el puerto
+            result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True)
+            if result.returncode != 0:
+                # Si ss no está disponible, probar con netstat
+                result = subprocess.run(["netstat", "-tuln"], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                # Verificar si el puerto está en la salida
+                if f":{port}" in result.stdout or f".{port}" in result.stdout:
+                    if self.logger:
+                        self.logger.info(f"Puerto {port} está en uso")
+                    return True
+                else:
+                    if self.logger:
+                        self.logger.info(f"Puerto {port} no está en uso")
+                    return False
+            else:
+                if self.logger:
+                    self.logger.error("No se pudo verificar el estado de los puertos")
+                return False
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Excepción al verificar puerto {port}: {str(e)}")
+            return False
+
+    def run_command_with_password(self, command):
+        """Ejecutar comando que requiere contraseña root"""
+        if not self.check_user_permissions():
+            password = self.get_stored_password()
+            if not password:
+                # Si no hay contraseña almacenada, solicitarla
+                from PyQt5.QtWidgets import QInputDialog
+                password, ok = QInputDialog.getText(None, 'Contraseña Root', 
+                                                  'Ingrese la contraseña de root:', 
+                                                  echo=QLineEdit.Password)
+                if ok and password:
+                    self.store_password(password)
+                else:
+                    return False, "Se requiere contraseña de root"
+
+            try:
+                # Usar expect o similar para automatizar la entrada de contraseña
+                import pexpect
+                child = pexpect.spawn(command)
+                child.expect(':')  # Esperar el prompt de contraseña
+                child.sendline(password)
+                child.expect(pexpect.EOF)  # Esperar a que termine
+                output = child.before.decode('utf-8')
+                return True, output
+            except pexpect.exceptions.TIMEOUT:
+                return False, "Tiempo de espera agotado"
+            except Exception as e:
+                return False, f"Error al ejecutar comando: {str(e)}"
+        else:
+            # Si ya somos root, ejecutar directamente
+            try:
+                result = subprocess.run(command.split(), capture_output=True, text=True)
+                if result.returncode == 0:
+                    return True, result.stdout
+                else:
+                    return False, result.stderr
+            except Exception as e:
+                return False, f"Error al ejecutar comando: {str(e)}"
+
+
+class PyginxApp(QMainWindow):
+    """Clase principal de la aplicación"""
+    def __init__(self, logger=None):
+        super().__init__()
+        self.setWindowTitle("Pyginx - Nginx GUI Manager v1.0")
+        self.setGeometry(100, 100, 1000, 700)
+        
+        # Inicializar el gestor de Nginx (el logger se asignará después)
+        self.nginx_manager = NginxManager()
+        self.logger = logger
+        
+        # Crear la interfaz de usuario
+        self.init_ui()
+        
+    def init_ui(self):
+        """Inicializar la interfaz de usuario"""
+        # Crear widget principal y layout
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        
+        # Crear pestañas
+        self.tabs = QTabWidget()
+        
+        # Agregar pestañas vacías por ahora
+        self.create_main_tab()
+        self.create_config_tab()
+        self.create_logs_tab()
+        self.create_permissions_tab()
+        
+        main_layout.addWidget(self.tabs)
+        self.setCentralWidget(main_widget)
+        
+        # Crear menú
+        self.create_menu()
+        
+    def create_main_tab(self):
+        """Crear pestaña principal con controles de Nginx"""
+        main_tab = QWidget()
+        layout = QVBoxLayout(main_tab)
+        
+        # Grupo para controles principales
+        controls_group = QGroupBox("Controles de Nginx")
+        controls_layout = QFormLayout(controls_group)
+        
+        # Botones para iniciar/detener/reiniciar
+        btn_layout = QHBoxLayout()
+        
+        self.start_btn = QPushButton("Iniciar Nginx")
+        self.stop_btn = QPushButton("Detener Nginx")
+        self.restart_btn = QPushButton("Reiniciar Nginx")
+        self.status_btn = QPushButton("Verificar Estado")
+        
+        btn_layout.addWidget(self.start_btn)
+        btn_layout.addWidget(self.stop_btn)
+        btn_layout.addWidget(self.restart_btn)
+        btn_layout.addWidget(self.status_btn)
+        
+        controls_layout.addRow(btn_layout)
+        
+        # Información de estado
+        self.status_label = QLabel("Estado: Desconocido")
+        self.port_label = QLabel("Puerto: -")
+        controls_layout.addRow("Estado:", self.status_label)
+        controls_layout.addRow("Puerto:", self.port_label)
+        
+        layout.addWidget(controls_group)
+        layout.addStretch()
+        
+        # Conectar eventos de botones
+        self.start_btn.clicked.connect(self.start_nginx_server)
+        self.stop_btn.clicked.connect(self.stop_nginx_server)
+        self.restart_btn.clicked.connect(self.restart_nginx_server)
+        self.status_btn.clicked.connect(self.check_nginx_status_server)
+        
+        # Añadir pestaña
+        self.tabs.addTab(main_tab, "Principal")
+        
+    def start_nginx_server(self):
+        """Iniciar Nginx"""
+        success, message = self.nginx_manager.start_nginx()
+        self.status_label.setText(f"Estado: {'Corriendo' if success else 'Detenido'}")
+        
+        if success:
+            # Actualizar puerto
+            _, port_info, ports = self.nginx_manager.get_nginx_ports()
+            if ports:
+                self.port_label.setText(f"Puerto: {', '.join(ports)}")
+            else:
+                self.port_label.setText("Puerto: Desconocido")
+            QMessageBox.information(self, "Nginx", message)
+        else:
+            QMessageBox.critical(self, "Error", message)
+
+    def stop_nginx_server(self):
+        """Detener Nginx"""
+        success, message = self.nginx_manager.stop_nginx()
+        self.status_label.setText("Estado: Detenido")
+        
+        if success:
+            QMessageBox.information(self, "Nginx", message)
+        else:
+            QMessageBox.critical(self, "Error", message)
+
+    def restart_nginx_server(self):
+        """Reiniciar Nginx"""
+        success, message = self.nginx_manager.restart_nginx()
+        
+        if success:
+            # Actualizar puerto después de reiniciar
+            _, port_info, ports = self.nginx_manager.get_nginx_ports()
+            if ports:
+                self.port_label.setText(f"Puerto: {', '.join(ports)}")
+            else:
+                self.port_label.setText("Puerto: Desconocido")
+            QMessageBox.information(self, "Nginx", message)
+        else:
+            QMessageBox.critical(self, "Error", message)
+
+    def check_nginx_status_server(self):
+        """Verificar estado de Nginx"""
+        success, message, is_running = self.nginx_manager.check_nginx_status()
+        self.status_label.setText(f"Estado: {'Corriendo' if is_running else 'Detenido'}")
+        
+        if success:
+            # Actualizar puerto
+            _, port_info, ports = self.nginx_manager.get_nginx_ports()
+            if ports:
+                self.port_label.setText(f"Puerto: {', '.join(ports)}")
+            else:
+                self.port_label.setText("Puerto: Desconocido")
+            QMessageBox.information(self, "Nginx", message)
+        else:
+            self.port_label.setText("Puerto: Error")
+            QMessageBox.critical(self, "Error", message)
+        
+    def create_config_tab(self):
+        """Crear pestaña para gestión de configuración"""
+        config_tab = QWidget()
+        layout = QVBoxLayout(config_tab)
+        
+        # Grupo para perfiles de configuración
+        profiles_group = QGroupBox("Perfiles de Configuración")
+        profiles_layout = QVBoxLayout(profiles_group)
+        
+        profile_layout = QHBoxLayout()
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["Simple", "Seguro", "A Prueba de Fallos", "HTTP", "HTTPS"])
+        self.load_profile_btn = QPushButton("Cargar Perfil")
+        self.save_profile_btn = QPushButton("Guardar Perfil")
+        
+        profile_layout.addWidget(QLabel("Perfil:"))
+        profile_layout.addWidget(self.profile_combo)
+        profile_layout.addWidget(self.load_profile_btn)
+        profile_layout.addWidget(self.save_profile_btn)
+        
+        profiles_layout.addLayout(profile_layout)
+        
+        layout.addWidget(profiles_group)
+        
+        # Editor de configuración
+        config_editor_group = QGroupBox("Editor de Configuración")
+        editor_layout = QVBoxLayout(config_editor_group)
+        
+        self.config_editor = QTextEdit()
+        self.config_editor.setFont(QFont("Courier", 10))
+        editor_layout.addWidget(self.config_editor)
+        
+        # Botones para archivo de configuración
+        file_btn_layout = QHBoxLayout()
+        self.load_config_btn = QPushButton("Cargar Configuración")
+        self.save_config_btn = QPushButton("Guardar Configuración")
+        self.test_config_btn = QPushButton("Probar Configuración")
+        self.backup_config_btn = QPushButton("Crear Backup")
+        
+        file_btn_layout.addWidget(self.load_config_btn)
+        file_btn_layout.addWidget(self.save_config_btn)
+        file_btn_layout.addWidget(self.test_config_btn)
+        file_btn_layout.addWidget(self.backup_config_btn)
+        
+        editor_layout.addLayout(file_btn_layout)
+        
+        layout.addWidget(config_editor_group)
+        
+        # Añadir pestaña
+        self.tabs.addTab(config_tab, "Configuración")
+        
+        # Conectar eventos de botones
+        self.load_config_btn.clicked.connect(self.load_config_file)
+        self.save_config_btn.clicked.connect(self.save_config_file)
+        self.test_config_btn.clicked.connect(self.test_config)
+        self.backup_config_btn.clicked.connect(self.backup_config)
+        self.load_profile_btn.clicked.connect(self.load_profile)
+        self.save_profile_btn.clicked.connect(self.save_profile)
+
+    def load_config_file(self):
+        """Cargar archivo de configuración"""
+        try:
+            with open(self.nginx_manager.config_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                self.config_editor.setPlainText(content)
+            
+            if self.logger:
+                self.logger.info(f"Configuración cargada desde {self.nginx_manager.config_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar el archivo de configuración:\n{str(e)}")
+
+    def save_config_file(self):
+        """Guardar archivo de configuración"""
+        try:
+            # Antes de guardar, hacer backup si existe el archivo
+            if os.path.exists(self.nginx_manager.config_file):
+                backup_path = f"{self.nginx_manager.config_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                import shutil
+                shutil.copy2(self.nginx_manager.config_file, backup_path)
+                if self.logger:
+                    self.logger.info(f"Backup creado: {backup_path}")
+            
+            # Guardar el contenido actual
+            with open(self.nginx_manager.config_file, 'w', encoding='utf-8') as f:
+                f.write(self.config_editor.toPlainText())
+            
+            if self.logger:
+                self.logger.info(f"Configuración guardada en {self.nginx_manager.config_file}")
+            QMessageBox.information(self, "Éxito", "Configuración guardada correctamente")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo de configuración:\n{str(e)}")
+
+    def test_config(self):
+        """Probar la configuración de Nginx"""
+        try:
+            # Guardar temporalmente la configuración actual para probarla
+            temp_config = f"/tmp/nginx_test_config_{int(datetime.now().timestamp())}"
+            with open(temp_config, 'w', encoding='utf-8') as f:
+                f.write(self.config_editor.toPlainText())
+            
+            # Probar la configuración
+            result = subprocess.run(["nginx", "-t", "-c", temp_config], 
+                                  capture_output=True, text=True)
+            
+            # Eliminar archivo temporal
+            os.remove(temp_config)
+            
+            if result.returncode == 0:
+                QMessageBox.information(self, "Prueba de Configuración", 
+                                      "La configuración es válida. ¡No se detectaron errores!")
+                if self.logger:
+                    self.logger.info("Configuración de Nginx probada y válida")
+            else:
+                QMessageBox.critical(self, "Error en Configuración", 
+                                   f"Errores encontrados en la configuración:\n{result.stderr}")
+                if self.logger:
+                    self.logger.error(f"Errores en configuración de Nginx: {result.stderr}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al probar la configuración:\n{str(e)}")
+
+    def backup_config(self):
+        """Crear backup del archivo de configuración"""
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_path = f"{self.nginx_manager.config_file}.backup_{timestamp}"
+            
+            import shutil
+            shutil.copy2(self.nginx_manager.config_file, backup_path)
+            
+            if self.logger:
+                self.logger.info(f"Backup de configuración creado: {backup_path}")
+            QMessageBox.information(self, "Backup", f"Backup creado exitosamente:\n{backup_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo crear el backup:\n{str(e)}")
+
+    def load_profile(self):
+        """Cargar perfil de configuración"""
+        profile = self.profile_combo.currentText()
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
+        
+        try:
+            with open(profile_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                self.config_editor.setPlainText(content)
+            
+            if self.logger:
+                self.logger.info(f"Perfil {profile} cargado desde {profile_path}")
+            QMessageBox.information(self, "Perfil Cargado", f"Perfil {profile} cargado correctamente")
+        except FileNotFoundError:
+            # Si no existe el perfil específico, cargar uno predeterminado
+            self.load_default_profile(profile)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar el perfil:\n{str(e)}")
+
+    def save_profile(self):
+        """Guardar perfil de configuración"""
+        profile = self.profile_combo.currentText()
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
+        
+        try:
+            # Crear directorio de perfiles si no existe
+            os.makedirs(os.path.dirname(profile_path), exist_ok=True)
+            
+            with open(profile_path, 'w', encoding='utf-8') as f:
+                f.write(self.config_editor.toPlainText())
+            
+            if self.logger:
+                self.logger.info(f"Perfil {profile} guardado en {profile_path}")
+            QMessageBox.information(self, "Perfil Guardado", f"Perfil {profile} guardado correctamente")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el perfil:\n{str(e)}")
+
+    def load_default_profile(self, profile):
+        """Cargar perfil predeterminado"""
+        # Crear contenido predeterminado según el perfil
+        profiles_content = {
+            "Simple": """# Configuración simple de Nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    sendfile        on;
+    keepalive_timeout  65;
+    
+    server {
+        listen       80;
+        server_name  localhost;
+        
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+        
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   /usr/share/nginx/html;
+        }
+    }
+}
+""",
+            "Seguro": """# Configuración segura de Nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    # Seguridad
+    server_tokens off;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    
+    sendfile        on;
+    tcp_nopush     on;
+    tcp_nodelay    on;
+    keepalive_timeout  65;
+    types_hash_max_size 2048;
+    
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+""",
+            "A Prueba de Fallos": """# Configuración a prueba de fallos de Nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    # Configuración robusta
+    sendfile        on;
+    tcp_nopush     on;
+    tcp_nodelay    on;
+    keepalive_timeout  65;
+    types_hash_max_size 2048;
+    
+    # Valores conservadores para entornos con alta carga
+    client_max_body_size 16M;
+    client_body_timeout 120s;
+    client_header_timeout 120s;
+    send_timeout 120s;
+    
+    # Configuración de buffers
+    client_body_buffer_size 128k;
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 4k;
+    
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+""",
+            "HTTP": """# Configuración para HTTP de Nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    sendfile        on;
+    keepalive_timeout  65;
+    
+    server {
+        listen       80;
+        server_name  _;
+        
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+        
+        # Redirección HTTPS
+        location /secure/ {
+            return 301 https://$server_name$request_uri;
+        }
+    }
+}
+""",
+            "HTTPS": """# Configuración para HTTPS de Nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    sendfile        on;
+    keepalive_timeout  65;
+    
+    # Configuración SSL
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    
+    server {
+        listen       80;
+        server_name  _;
+        
+        # Redirigir HTTP a HTTPS
+        return 301 https://$server_name$request_uri;
+    }
+    
+    server {
+        listen       443 ssl http2;
+        server_name  _;
+        
+        ssl_certificate /path/to/certificate.crt;
+        ssl_certificate_key /path/to/private.key;
+        
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+        
+        location / {
+            try_files $uri $uri/ =404;
+        }
+    }
+}
+"""
+        }
+        
+        if profile in profiles_content:
+            self.config_editor.setPlainText(profiles_content[profile])
+            if self.logger:
+                self.logger.info(f"Perfil predeterminado {profile} cargado")
+            QMessageBox.information(self, "Perfil Cargado", 
+                                  f"Perfil predeterminado {profile} cargado")
+        
+    def create_logs_tab(self):
+        """Crear pestaña para visualización de logs"""
+        logs_tab = QWidget()
+        layout = QVBoxLayout(logs_tab)
+        
+        # Selector de tipo de log
+        log_selector_layout = QHBoxLayout()
+        log_selector_layout.addWidget(QLabel("Tipo de Log:"))
+        self.log_type_combo = QComboBox()
+        self.log_type_combo.addItems(["Acceso", "Error", "Personalizado"])
+        log_selector_layout.addWidget(self.log_type_combo)
+        
+        self.load_log_btn = QPushButton("Cargar Log")
+        self.load_log_btn.clicked.connect(self.load_log_file)
+        log_selector_layout.addWidget(self.load_log_btn)
+        
+        self.follow_log_checkbox = QCheckBox("Seguir log (tail -f)")
+        log_selector_layout.addWidget(self.follow_log_checkbox)
+        
+        layout.addLayout(log_selector_layout)
+        
+        # Visualizador de logs
+        self.logs_viewer = QTextEdit()
+        self.logs_viewer.setFont(QFont("Courier", 9))
+        self.logs_viewer.setReadOnly(True)
+        layout.addWidget(self.logs_viewer)
+        
+        # Controles adicionales para logs
+        log_controls_layout = QHBoxLayout()
+        
+        self.clear_log_btn = QPushButton("Limpiar")
+        self.clear_log_btn.clicked.connect(self.clear_logs)
+        log_controls_layout.addWidget(self.clear_log_btn)
+        
+        self.refresh_log_btn = QPushButton("Actualizar")
+        self.refresh_log_btn.clicked.connect(self.refresh_log_display)
+        log_controls_layout.addWidget(self.refresh_log_btn)
+        
+        # Botón para seleccionar archivo de log personalizado
+        self.select_custom_log_btn = QPushButton("Archivo Personalizado")
+        self.select_custom_log_btn.clicked.connect(self.select_custom_log_file)
+        log_controls_layout.addWidget(self.select_custom_log_btn)
+        
+        layout.addLayout(log_controls_layout)
+        
+        # Añadir pestaña
+        self.tabs.addTab(logs_tab, "Logs")
+
+    def load_log_file(self):
+        """Cargar archivo de log según selección"""
+        log_type = self.log_type_combo.currentText()
+        
+        if log_type == "Acceso":
+            log_file = self.nginx_manager.access_log
+        elif log_type == "Error":
+            log_file = self.nginx_manager.error_log
+        else:
+            # Para tipo personalizado, pedir al usuario que seleccione el archivo
+            log_file, _ = QFileDialog.getOpenFileName(
+                self, "Seleccionar archivo de log", 
+                "/var/log", "Archivos de log (*.log);;Todos los archivos (*)"
+            )
+            if not log_file:
+                return
+        
+        try:
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                self.logs_viewer.setPlainText(content)
+            
+            # Si está activado seguir log, iniciar thread
+            if self.follow_log_checkbox.isChecked():
+                self.start_following_log(log_file)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo leer el archivo de log:\n{str(e)}")
+
+    def select_custom_log_file(self):
+        """Seleccionar archivo de log personalizado"""
+        log_file, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar archivo de log personalizado", 
+            "/var/log", "Archivos de log (*.log);;Todos los archivos (*)"
+        )
+        
+        if log_file:
+            self.custom_log_path = log_file
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    self.logs_viewer.setPlainText(content)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo leer el archivo de log:\n{str(e)}")
+
+    def clear_logs(self):
+        """Limpiar el visor de logs"""
+        self.logs_viewer.clear()
+
+    def refresh_log_display(self):
+        """Actualizar la visualización de logs"""
+        self.load_log_file()
+
+    def start_following_log(self, log_file):
+        """Iniciar seguimiento de log en tiempo real"""
+        # Detener cualquier thread de seguimiento anterior
+        if hasattr(self, 'log_follow_thread') and self.log_follow_thread.is_alive():
+            self.log_follow_thread.stop()
+        
+        # Iniciar nuevo thread para seguir el log
+        self.log_follow_thread = LogFollowThread(log_file)
+        self.log_follow_thread.log_signal.connect(self.append_to_log_viewer)
+        self.log_follow_thread.start()
+
+    def append_to_log_viewer(self, text):
+        """Añadir texto al visor de logs"""
+        cursor = self.logs_viewer.textCursor()
+        cursor.movePosition(cursor.End)
+        cursor.insertText(text)
+        self.logs_viewer.setTextCursor(cursor)
+        self.logs_viewer.ensureCursorVisible()
+
+    def create_permissions_tab(self):
+        """Crear pestaña para gestión de permisos"""
+        perms_tab = QWidget()
+        layout = QVBoxLayout(perms_tab)
+        
+        # Grupo para directorio de archivos servidos
+        dir_group = QGroupBox("Directorio de Archivos Servidos")
+        dir_layout = QFormLayout(dir_group)
+        
+        self.dir_path_input = QLineEdit("/var/www/html")  # Ruta predeterminada
+        self.browse_dir_btn = QPushButton("Examinar")
+        self.browse_dir_btn.clicked.connect(self.browse_directory)
+        
+        browse_layout = QHBoxLayout()
+        browse_layout.addWidget(self.dir_path_input)
+        browse_layout.addWidget(self.browse_dir_btn)
+        
+        dir_layout.addRow("Directorio:", browse_layout)
+        
+        # Botones para comprobación y ajuste de permisos
+        perms_btn_layout = QHBoxLayout()
+        self.check_perms_btn = QPushButton("Verificar Permisos")
+        self.fix_perms_btn = QPushButton("Corregir Permisos")
+        self.check_perms_btn.clicked.connect(self.check_permissions)
+        self.fix_perms_btn.clicked.connect(self.fix_permissions)
+        
+        perms_btn_layout.addWidget(self.check_perms_btn)
+        perms_btn_layout.addWidget(self.fix_perms_btn)
+        
+        dir_layout.addRow(perms_btn_layout)
+        
+        layout.addWidget(dir_group)
+        
+        # Resultados de verificación de permisos
+        results_group = QGroupBox("Resultados de Verificación")
+        results_layout = QVBoxLayout(results_group)
+        
+        self.perms_results = QTextEdit()
+        self.perms_results.setFont(QFont("Courier", 9))
+        self.perms_results.setReadOnly(True)
+        results_layout.addWidget(self.perms_results)
+        
+        layout.addWidget(results_group)
+        
+        # Opciones avanzadas
+        advanced_group = QGroupBox("Opciones Avanzadas")
+        advanced_layout = QFormLayout(advanced_group)
+        
+        # Usuario propietario
+        self.owner_user_input = QLineEdit("www-data")
+        owner_layout = QHBoxLayout()
+        owner_layout.addWidget(QLabel("Usuario propietario:"))
+        owner_layout.addWidget(self.owner_user_input)
+        advanced_layout.addRow(owner_layout)
+        
+        # Permisos para directorios
+        self.dir_perms_input = QLineEdit("755")
+        dir_perms_layout = QHBoxLayout()
+        dir_perms_layout.addWidget(QLabel("Permisos para directorios:"))
+        dir_perms_layout.addWidget(self.dir_perms_input)
+        advanced_layout.addRow(dir_perms_layout)
+        
+        # Permisos para archivos
+        self.file_perms_input = QLineEdit("644")
+        file_perms_layout = QHBoxLayout()
+        file_perms_layout.addWidget(QLabel("Permisos para archivos:"))
+        file_perms_layout.addWidget(self.file_perms_input)
+        advanced_layout.addRow(file_perms_layout)
+        
+        layout.addWidget(advanced_group)
+        
+        # Añadir pestaña
+        self.tabs.addTab(perms_tab, "Permisos")
+
+    def browse_directory(self):
+        """Abrir diálogo para seleccionar directorio"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Seleccionar directorio de archivos servidos", 
+            "/var/www"
+        )
+        if directory:
+            self.dir_path_input.setText(directory)
+
+    def check_permissions(self):
+        """Verificar permisos de archivos en el directorio"""
+        directory = self.dir_path_input.text()
+        
+        if not directory or not os.path.isdir(directory):
+            QMessageBox.warning(self, "Error", "Por favor seleccione un directorio válido.")
+            return
+        
+        try:
+            self.perms_results.clear()
+            self.perms_results.append(f"Verificando permisos en: {directory}\n")
+            
+            # Información del usuario propietario
+            owner_user = self.owner_user_input.text() or "www-data"
+            
+            # Verificar si el usuario existe
+            import pwd
+            try:
+                pwd.getpwnam(owner_user)
+            except KeyError:
+                self.perms_results.append(f"Advertencia: El usuario '{owner_user}' no existe en el sistema.\n")
+            
+            incorrect_perms = []
+            
+            # Recorrer directorio recursivamente
+            for root, dirs, files in os.walk(directory):
+                # Verificar permisos de directorios
+                dir_stat = os.stat(root)
+                dir_mode = oct(dir_stat.st_mode)[-3:]
+                if dir_mode != self.dir_perms_input.text():
+                    incorrect_perms.append({
+                        'path': root,
+                        'type': 'directorio',
+                        'current': dir_mode,
+                        'expected': self.dir_perms_input.text()
+                    })
+                
+                # Verificar propietario de directorio
+                dir_uid = dir_stat.st_uid
+                dir_owner = pwd.getpwuid(dir_uid).pw_name if dir_uid else "unknown"
+                if dir_owner != owner_user:
+                    incorrect_perms.append({
+                        'path': root,
+                        'type': 'directorio (propietario)',
+                        'current': dir_owner,
+                        'expected': owner_user
+                    })
+                    
+                # Verificar permisos y propietario de archivos
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    file_stat = os.stat(file_path)
+                    file_mode = oct(file_stat.st_mode)[-3:]
+                    
+                    if file_mode != self.file_perms_input.text():
+                        incorrect_perms.append({
+                            'path': file_path,
+                            'type': 'archivo',
+                            'current': file_mode,
+                            'expected': self.file_perms_input.text()
+                        })
+                    
+                    # Verificar propietario de archivo
+                    file_uid = file_stat.st_uid
+                    file_owner = pwd.getpwuid(file_uid).pw_name if file_uid else "unknown"
+                    if file_owner != owner_user:
+                        incorrect_perms.append({
+                            'path': file_path,
+                            'type': 'archivo (propietario)',
+                            'current': file_owner,
+                            'expected': owner_user
+                        })
+            
+            if incorrect_perms:
+                self.perms_results.append(f"Se encontraron {len(incorrect_perms)} discrepancias:\n")
+                for item in incorrect_perms:
+                    self.perms_results.append(
+                        f"- {item['type']}: {item['path']}\n" +
+                        f"  Actual: {item['current']} | Esperado: {item['expected']}\n"
+                    )
+            else:
+                self.perms_results.append("✓ Todos los permisos y propietarios son correctos.")
+            
+            if self.logger:
+                self.logger.info(f"Verificación de permisos completada para {directory}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al verificar permisos:\n{str(e)}")
+            if self.logger:
+                self.logger.error(f"Error al verificar permisos: {str(e)}")
+
+    def fix_permissions(self):
+        """Corregir permisos de archivos en el directorio"""
+        directory = self.dir_path_input.text()
+        
+        if not directory or not os.path.isdir(directory):
+            QMessageBox.warning(self, "Error", "Por favor seleccione un directorio válido.")
+            return
+        
+        reply = QMessageBox.question(self, "Confirmar", 
+                                   f"¿Está seguro de corregir los permisos en:\n{directory}?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        try:
+            self.perms_results.append(f"\nCorrigiendo permisos en: {directory}\n")
+            
+            # Información de propietario y permisos
+            owner_user = self.owner_user_input.text() or "www-data"
+            dir_perms = self.dir_perms_input.text() or "755"
+            file_perms = self.file_perms_input.text() or "644"
+            
+            # Recorrer directorio recursivamente
+            fixed_count = 0
+            
+            for root, dirs, files in os.walk(directory):
+                # Arreglar permisos de directorio
+                try:
+                    # Cambiar propietario
+                    subprocess.run(["sudo", "chown", "-R", f"{owner_user}:{owner_user}", root], 
+                                 capture_output=True, text=True)
+                    
+                    # Cambiar permisos
+                    subprocess.run(["sudo", "chmod", dir_perms, root], 
+                                 capture_output=True, text=True)
+                    
+                    fixed_count += 1
+                except Exception as e:
+                    self.perms_results.append(f"Error en directorio {root}: {str(e)}\n")
+                
+                # Arreglar permisos de archivos
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        # Cambiar propietario
+                        subprocess.run(["sudo", "chown", f"{owner_user}:{owner_user}", file_path], 
+                                     capture_output=True, text=True)
+                        
+                        # Cambiar permisos
+                        subprocess.run(["sudo", "chmod", file_perms, file_path], 
+                                     capture_output=True, text=True)
+                        
+                        fixed_count += 1
+                    except Exception as e:
+                        self.perms_results.append(f"Error en archivo {file_path}: {str(e)}\n")
+            
+            self.perms_results.append(f"\n✓ {fixed_count} permisos corregidos exitosamente.")
+            if self.logger:
+                self.logger.info(f"Corrección de permisos completada para {directory}. {fixed_count} elementos corregidos.")
+            
+            QMessageBox.information(self, "Éxito", 
+                                  f"Permisos corregidos exitosamente en {directory}\n{fixed_count} elementos actualizados.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al corregir permisos:\n{str(e)}")
+            if self.logger:
+                self.logger.error(f"Error al corregir permisos: {str(e)}")
+        
+    def create_menu(self):
+        """Crear barra de menú"""
+        menubar = self.menuBar()
+        
+        # Menú Archivo
+        file_menu = menubar.addMenu('Archivo')
+        
+        exit_action = QAction('Salir', self)
+        exit_action.setShortcut('Ctrl+Q')
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # Menú Herramientas
+        tools_menu = menubar.addMenu('Herramientas')
+        
+        # Menú Ayuda
+        help_menu = menubar.addMenu('Ayuda')
+        about_action = QAction('Acerca de', self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+        
+        # Menú de credenciales
+        credentials_menu = menubar.addMenu('Credenciales')
+        set_root_password_action = QAction('Establecer contraseña Root', self)
+        set_root_password_action.triggered.connect(self.set_root_password)
+        credentials_menu.addAction(set_root_password_action)
+        
+    def show_about(self):
+        """Mostrar información de la aplicación"""
+        QMessageBox.about(self, "Acerca de Pyginx", 
+                         "Pyginx - GUI para gestión de servidores Nginx\n\nVersión: 1.0\nFecha: 2025")
+
+    def set_root_password(self):
+        """Solicitar y almacenar contraseña root"""
+        from PyQt5.QtWidgets import QInputDialog
+        password, ok = QInputDialog.getText(self, 'Contraseña Root', 
+                                          'Ingrese la contraseña de root\n(Se almacenará temporalmente ofuscada):', 
+                                          echo=QLineEdit.Password)
+        
+        if ok and password:
+            self.nginx_manager.store_password(password)
+            QMessageBox.information(self, "Contraseña Almacenada", 
+                                  "La contraseña de root se ha almacenado temporalmente.")
+            if self.logger:
+                self.logger.info("Contraseña root almacenada temporalmente")
+        else:
+            QMessageBox.information(self, "Cancelado", 
+                                  "No se ha almacenado ninguna contraseña.")
+
+
+class LogFollowThread(QThread):
+    """Thread para seguir un archivo de log en tiempo real"""
+    log_signal = pyqtSignal(str)
+
+    def __init__(self, log_file):
+        super().__init__()
+        self.log_file = log_file
+        self.running = True
+
+    def run(self):
+        """Ejecutar el seguimiento del log"""
+        import time
+        try:
+            # Obtener tamaño inicial del archivo
+            file_size = os.path.getsize(self.log_file)
+            
+            while self.running:
+                current_size = os.path.getsize(self.log_file)
+                
+                if current_size != file_size:
+                    with open(self.log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        f.seek(file_size)  # Ir al final del archivo desde donde se quedó
+                        new_content = f.read()
+                        if new_content:
+                            self.log_signal.emit(new_content)
+                    
+                    file_size = current_size
+                
+                time.sleep(0.5)  # Esperar medio segundo antes de verificar de nuevo
+                
+        except Exception as e:
+            self.log_signal.emit(f"\n[ERROR] No se puede seguir el archivo de log: {str(e)}\n")
+
+    def stop(self):
+        """Detener el seguimiento del log"""
+        self.running = False
+
+
+def main():
+    """Función principal"""
+    # Configurar entorno virtual - esto reiniciará el script si es necesario
+    python_executable = check_and_setup_virtual_env()
+    
+    # Ahora que estamos en el entorno virtual, verificar dependencias y configurar logging
+    check_dependencies()
+
+    # Importar colorama después de verificar dependencias
+    try:
+        from colorama import Fore, Style, init
+        init(autoreset=True)
+    except ImportError:
+        # Si colorama no está disponible, crear clases vacías
+        class EmptyColor:
+            def __getattr__(self, name):
+                return ""
+        
+        Fore = EmptyColor()
+        Style = EmptyColor()
+
+    # Configurar logging global
+    logger = setup_logger()
+    
+    # Verificar que el sistema sea Linux
+    nginx_manager = NginxManager(logger=logger)
+    if not nginx_manager.check_system():
+        print(f"{Fore.RED}Este script está diseñado para Linux.")
+        sys.exit(1)
+    
+    # Verificar que Nginx esté instalado
+    if not nginx_manager.check_nginx_installed():
+        print(f"{Fore.RED}Nginx no está instalado en este sistema.")
+        print(f"{Fore.YELLOW}Instale Nginx antes de usar esta herramienta.")
+        sys.exit(1)
+    
+    logger.info("Iniciando Pyginx - Nginx GUI Manager")
+    print(f"{Fore.CYAN}Iniciando Pyginx - Nginx GUI Manager...")
+    
+    app = QApplication(sys.argv)
+    window = PyginxApp(logger=logger)
+    # Asignar el logger a la instancia de NginxManager de la ventana
+    window.nginx_manager.logger = logger
+    window.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
