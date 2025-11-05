@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Script para iniciar la aplicación Pyginx - Nginx GUI Manager
+# Versión actualizada con nuevas funcionalidades
+
+echo "Iniciando Pyginx - Nginx GUI Manager..."
+echo "Nuevas funcionalidades:"
+echo "  - Indicador visual para estado de inicio automático"
+echo "  - Mejora en la detección de puertos de Nginx"
+echo "  - Control de puerto en la pestaña de configuración"
+echo ""
+
+# Cambiar al directorio del proyecto
+cd "$(dirname "$0")" || exit 1
+
+# Iniciar la aplicación
+python3 pyginx_manager.py
+
+# Verificar si la ejecución fue exitosa
+if [ $? -eq 0 ]; then
+    echo "Pyginx se ha iniciado correctamente"
+else
+    echo "Hubo un error al iniciar Pyginx"
+    exit 1
+fi

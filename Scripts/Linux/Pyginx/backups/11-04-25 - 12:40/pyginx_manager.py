@@ -250,13 +250,6 @@ class NginxManager:
     def start_nginx(self):
         """Iniciar el servidor Nginx"""
         try:
-            # Primero, probar la configuración antes de iniciar
-            config_valid, config_msg = self.test_nginx_config()
-            if not config_valid:
-                if self.logger:
-                    self.logger.error(f"La configuración de Nginx no es válida: {config_msg}")
-                return False, f"La configuración de Nginx no es válida: {config_msg}"
-            
             # Determinar si usar sudo basado en permisos
             if not self.check_user_permissions():
                 # Si no somos root, usar la función run_command_with_password
@@ -287,33 +280,6 @@ class NginxManager:
             if self.logger:
                 self.logger.error(f"Excepción al iniciar Nginx: {str(e)}")
             return False, f"Excepción al iniciar Nginx: {str(e)}"
-
-    def test_nginx_config(self):
-        """Probar la configuración de Nginx"""
-        try:
-            # Probar la configuración usando el comando de nginx con comprobación de sintaxis
-            result = subprocess.run(["nginx", "-t"], capture_output=True, text=True)
-            
-            # Si falla por permisos, intentamos con sudo
-            if result.returncode != 0 and ("Permission denied" in result.stderr or "failed (13: Permission denied)" in result.stderr):
-                # Usar el sistema de contraseñas de la aplicación para probar con sudo
-                success, output = self.run_command_with_password("sudo nginx -t")
-                if success:
-                    return True, "Configuración válida"
-                else:
-                    return False, output
-            
-            if result.returncode == 0:
-                return True, "Configuración válida"
-            else:
-                # Si la salida de error contiene warnings, los mostramos como información adicional
-                error_msg = result.stderr
-                if "warn" in error_msg.lower():
-                    return True, f"Configuración válida con advertencias: {error_msg}"
-                else:
-                    return False, error_msg
-        except Exception as e:
-            return False, f"Error al probar la configuración: {str(e)}"
 
     def stop_nginx(self):
         """Detener el servidor Nginx"""
@@ -431,119 +397,32 @@ class NginxManager:
     def get_nginx_ports(self):
         """Obtener los puertos en los que Nginx está escuchando"""
         try:
-            import re
-            all_ports = []
-            
-            # Directorio específico de sitios habilitados que mencionaste
-            sites_enabled_dir = f"{self.config_dir}/sites-enabled/"
-            
-            # Solo leer archivos del directorio de sitios habilitados
-            if os.path.exists(sites_enabled_dir):
-                # Si es directorio, leer todos los archivos .conf
-                if os.path.isdir(sites_enabled_dir):
-                    for filename in os.listdir(sites_enabled_dir):
-                        if filename.endswith('.conf') or filename.endswith('.config'):
-                            file_path = os.path.join(sites_enabled_dir, filename)
-                            try:
-                                with open(file_path, 'r', encoding='utf-8') as f:
-                                    content = f.read()
-                                    # Buscar patrones de 'listen' con puertos numéricos
-                                    listen_patterns = re.findall(r'listen\s+(\d+)(?:\s+ssl)?;', content)
-                                    all_ports.extend(listen_patterns)
-                            except Exception as e:
-                                if self.logger:
-                                    self.logger.info(f"Error al leer archivo de sitio habilitado {file_path}: {str(e)}")
-                                continue
-                # Si es archivo, leerlo directamente
-                elif os.path.isfile(sites_enabled_dir):
-                    try:
-                        with open(sites_enabled_dir, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            listen_patterns = re.findall(r'listen\s+(\d+)(?:\s+ssl)?;', content)
-                            all_ports.extend(listen_patterns)
-                    except Exception as e:
-                        if self.logger:
-                            self.logger.info(f"Error al leer archivo de sitio habilitado {sites_enabled_dir}: {str(e)}")
-            
-            # Eliminar duplicados y filtrar puertos vacíos
-            ports = list(set([port for port in all_ports if port and port.strip()]))
-            
-            if ports:
-                if self.logger:
-                    self.logger.info(f"Puertos de sitios habilitados de Nginx detectados: {', '.join(ports)}")
-                return True, f"Puertos: {', '.join(ports)}", ports
-            else:
-                # Intentar detectar puertos usando ss/lsof si nginx está corriendo
-                if self.is_running:
-                    running_ports = self.get_running_nginx_ports()
-                    if running_ports:
-                        if self.logger:
-                            self.logger.info(f"Puertos de Nginx en ejecución: {', '.join(running_ports)}")
-                        return True, f"Puertos: {', '.join(running_ports)}", running_ports
-                    else:
-                        if self.logger:
-                            self.logger.info("No se encontraron puertos definidos en sitios habilitados ni en ejecución")
-                        return True, "No se encontraron puertos definidos en sitios habilitados", []
+            # Buscar en el archivo de configuración los puertos
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    config_content = f.read()
+                
+                # Buscar líneas con 'listen'
+                import re
+                listen_patterns = re.findall(r'listen\s+([0-9]+)(?:\s+ssl)?;', config_content)
+                ports = list(set(listen_patterns))  # Eliminar duplicados
+                
+                if ports:
+                    if self.logger:
+                        self.logger.info(f"Puertos de Nginx detectados: {', '.join(ports)}")
+                    return True, f"Puertos: {', '.join(ports)}", ports
                 else:
                     if self.logger:
-                        self.logger.info("No se encontraron puertos definidos en sitios habilitados")
-                    return True, "No se encontraron puertos definidos en sitios habilitados", []
+                        self.logger.info("No se encontraron puertos definidos en la configuración")
+                    return True, "No se encontraron puertos definidos en la configuración", []
+            else:
+                if self.logger:
+                    self.logger.error(f"Archivo de configuración no encontrado: {self.config_file}")
+                return False, f"Archivo de configuración no encontrado: {self.config_file}", []
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Excepción al obtener puertos de Nginx: {str(e)}")
             return False, f"Excepción al obtener puertos: {str(e)}", []
-
-    def get_running_nginx_ports(self):
-        """Obtener los puertos en los que Nginx está actualmente escuchando"""
-        try:
-            import re
-            # Usar lsof para encontrar los puertos en los que nginx está escuchando
-            lsof_result = subprocess.run(["lsof", "-i", "-P", "-n", "-c", "nginx"], 
-                                       capture_output=True, text=True)
-            
-            if lsof_result.returncode == 0 and lsof_result.stdout:
-                # Extraer puertos desde la salida de lsof
-                lines = lsof_result.stdout.split('\n')
-                listening_ports = []
-                
-                for line in lines:
-                    # Buscar líneas que indican escucha (LISTEN)
-                    if 'LISTEN' in line and 'nginx' in line.lower():
-                        # Extraer el puerto de la línea (formato típico: nginx  PID ... TCP *:PORT o IP:PORT)
-                        port_matches = re.findall(r':(\d+)\s+\(LISTEN\)', line)
-                        listening_ports.extend([port for port in port_matches if port])
-                        
-                        # También capturar el formato tipo 0.0.0.0:PORT
-                        alt_matches = re.findall(r'0\.0\.0\.0:(\d+)\s+|:::(\d+)\s+', line)
-                        for match in alt_matches:
-                            if isinstance(match, tuple):
-                                port = next((p for p in match if p), None)
-                            else:
-                                port = match
-                            if port:
-                                listening_ports.append(port)
-                
-                # Eliminar duplicados
-                unique_ports = list(set(listening_ports))
-                
-                # Filtrar para incluir solo puertos comunes de Nginx
-                valid_ports = []
-                for port in unique_ports:
-                    if port.isdigit():
-                        port_num = int(port)
-                        # Considerar puertos estándar y comunes para Nginx
-                        if port_num < 65536:  # Puerto válido
-                            # Puertos comunes de Nginx o rango de servidores web
-                            if port_num == 80 or port_num == 443 or (port_num >= 8000 and port_num <= 9000) or (port_num >= 80 and port_num <= 90):
-                                valid_ports.append(port)
-                
-                return valid_ports
-            else:
-                return []
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Excepción al obtener puertos de Nginx en ejecución: {str(e)}")
-            return []
 
     def check_port_status(self, port):
         """Verificar si un puerto específico está en uso"""
@@ -625,120 +504,6 @@ class NginxManager:
             except Exception as e:
                 return False, f"Error al ejecutar comando: {str(e)}"
 
-    def enable_nginx_autostart(self):
-        """Habilitar el inicio automático de Nginx con el sistema"""
-        try:
-            if not self.check_user_permissions():
-                # Si no somos root, usar la función run_command_with_password
-                command = "sudo systemctl enable nginx"
-                success, result = self.run_command_with_password(command)
-                if success:
-                    if self.logger:
-                        self.logger.info("Inicio automático de Nginx habilitado")
-                    return True, "Inicio automático de Nginx habilitado exitosamente"
-                else:
-                    if self.logger:
-                        self.logger.error(f"Error al habilitar inicio automático de Nginx: {result}")
-                    return False, f"Error al habilitar inicio automático: {result}"
-            else:
-                # Si ya somos root, ejecutar directamente
-                result = subprocess.run(["systemctl", "enable", "nginx"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    if self.logger:
-                        self.logger.info("Inicio automático de Nginx habilitado")
-                    return True, "Inicio automático de Nginx habilitado exitosamente"
-                else:
-                    if self.logger:
-                        self.logger.error(f"Error al habilitar inicio automático de Nginx: {result.stderr}")
-                    return False, f"Error al habilitar inicio automático: {result.stderr}"
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Excepción al habilitar inicio automático de Nginx: {str(e)}")
-            return False, f"Excepción al habilitar inicio automático: {str(e)}"
-
-    def disable_nginx_autostart(self):
-        """Deshabilitar el inicio automático de Nginx con el sistema"""
-        try:
-            if not self.check_user_permissions():
-                # Si no somos root, usar la función run_command_with_password
-                command = "sudo systemctl disable nginx"
-                success, result = self.run_command_with_password(command)
-                if success:
-                    if self.logger:
-                        self.logger.info("Inicio automático de Nginx deshabilitado")
-                    return True, "Inicio automático de Nginx deshabilitado exitosamente"
-                else:
-                    if self.logger:
-                        self.logger.error(f"Error al deshabilitar inicio automático de Nginx: {result}")
-                    return False, f"Error al deshabilitar inicio automático: {result}"
-            else:
-                # Si ya somos root, ejecutar directamente
-                result = subprocess.run(["systemctl", "disable", "nginx"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    if self.logger:
-                        self.logger.info("Inicio automático de Nginx deshabilitado")
-                    return True, "Inicio automático de Nginx deshabilitado exitosamente"
-                else:
-                    if self.logger:
-                        self.logger.error(f"Error al deshabilitar inicio automático de Nginx: {result.stderr}")
-                    return False, f"Error al deshabilitar inicio automático: {result.stderr}"
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Excepción al deshabilitar inicio automático de Nginx: {str(e)}")
-            return False, f"Excepción al deshabilitar inicio automático: {str(e)}"
-
-    def check_nginx_autostart_status(self):
-        """Verificar el estado del inicio automático de Nginx"""
-        try:
-            if not self.check_user_permissions():
-                # Si no somos root, usar la función run_command_with_password
-                command = "sudo systemctl is-enabled nginx"
-                success, result = self.run_command_with_password(command)
-                
-                if success:
-                    # El resultado indica el estado del inicio automático
-                    output = result if isinstance(result, str) else str(result)
-                    # is-enabled devuelve "enabled" o "disabled"
-                    is_enabled = "enabled" in output
-                    status_msg = "Inicio automático habilitado" if is_enabled else "Inicio automático deshabilitado"
-                    if self.logger:
-                        self.logger.info(f"Estado del inicio automático de Nginx: {status_msg}")
-                    return True, status_msg, is_enabled
-                else:
-                    # Puede que el servicio no esté instalado o haya otro problema
-                    if "disabled" in result.lower():
-                        # Caso especial donde is-enabled puede devolver un código de error
-                        # pero aún así indicar que está deshabilitado
-                        if self.logger:
-                            self.logger.info("Inicio automático de Nginx: deshabilitado (verificado con error)")
-                        return True, "Inicio automático deshabilitado", False
-                    else:
-                        if self.logger:
-                            self.logger.error(f"Error al verificar estado del inicio automático: {result}")
-                        return False, f"Error al verificar estado del inicio automático: {result}", False
-            else:
-                # Si ya somos root, ejecutar directamente
-                result = subprocess.run(["systemctl", "is-enabled", "nginx"], capture_output=True, text=True)
-                # systemctl is-enabled devuelve 0 si está habilitado, no 0 si está deshabilitado
-                if result.returncode == 0 and "enabled" in result.stdout:
-                    is_enabled = True
-                    status_msg = "Inicio automático habilitado"
-                elif result.returncode == 1 or "disabled" in result.stdout or "not-found" in result.stdout:
-                    is_enabled = False
-                    status_msg = "Inicio automático deshabilitado"
-                else:
-                    # Otro estado
-                    is_enabled = None
-                    status_msg = f"Estado del inicio automático: {result.stdout.strip()}"
-                
-                if self.logger:
-                    self.logger.info(f"Estado del inicio automático de Nginx: {status_msg}")
-                return True, status_msg, is_enabled
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Excepción al verificar estado del inicio automático: {str(e)}")
-            return False, f"Excepción al verificar estado del inicio automático: {str(e)}", False
-
 
 class PyginxApp(QMainWindow):
     """Clase principal de la aplicación"""
@@ -753,11 +518,9 @@ class PyginxApp(QMainWindow):
         
         # Crear la interfaz de usuario
         self.init_ui()
-        # Inicializar los indicadores de estado a desconocido (amarillo)
+        # Inicializar el indicador de estado a desconocido (amarillo)
         if hasattr(self, 'status_indicator'):
             self.update_status_indicator('unknown')
-        if hasattr(self, 'autostart_indicator'):
-            self.update_autostart_indicator('unknown')
         
     def init_ui(self):
         """Inicializar la interfaz de usuario"""
@@ -804,17 +567,6 @@ class PyginxApp(QMainWindow):
         
         controls_layout.addRow(btn_layout)
         
-        # Botones para inicio automático
-        autostart_layout = QHBoxLayout()
-        
-        self.enable_autostart_btn = QPushButton("Activar Inicio Automático con el Sistema")
-        self.disable_autostart_btn = QPushButton("Desactivar Inicio Automático con el Sistema")
-        
-        autostart_layout.addWidget(self.enable_autostart_btn)
-        autostart_layout.addWidget(self.disable_autostart_btn)
-        
-        controls_layout.addRow(autostart_layout)
-        
         # Layout para estado visual y texto
         status_layout = QHBoxLayout()
         
@@ -825,21 +577,11 @@ class PyginxApp(QMainWindow):
         
         # Etiquetas de texto de estado y puerto
         self.status_label = QLabel("Estado: Desconocido")
-        
-        # Indicador visual de inicio automático (cuadro de color)
-        self.autostart_indicator = QLabel()
-        self.autostart_indicator.setFixedSize(20, 20)  # Cuadro de 20x20 píxeles
-        self.autostart_indicator.setStyleSheet("background-color: yellow; border: 1px solid black;")  # Estado desconocido en amarillo
-        
-        # Etiqueta de texto de inicio automático
-        self.autostart_status_label = QLabel("Inicio Auto: Desconocido")
         self.port_label = QLabel("Puerto: -")
         
-        # Añadir los indicadores y las etiquetas al layout horizontal
+        # Añadir el indicador y las etiquetas al layout horizontal
         status_layout.addWidget(self.status_indicator)
         status_layout.addWidget(self.status_label)
-        status_layout.addWidget(self.autostart_indicator)
-        status_layout.addWidget(self.autostart_status_label)
         status_layout.addStretch()  # Para empujar las etiquetas hacia la izquierda y dejar espacio
         
         # Agregar la fila al layout del formulario
@@ -854,8 +596,6 @@ class PyginxApp(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_nginx_server)
         self.restart_btn.clicked.connect(self.restart_nginx_server)
         self.status_btn.clicked.connect(self.check_nginx_status_server)
-        self.enable_autostart_btn.clicked.connect(self.enable_nginx_autostart)
-        self.disable_autostart_btn.clicked.connect(self.disable_nginx_autostart)
         
         # Añadir pestaña
         self.tabs.addTab(main_tab, "Principal")
@@ -876,23 +616,6 @@ class PyginxApp(QMainWindow):
         
         self.status_indicator.setStyleSheet(f"background-color: {color}; border: 1px solid black;")
         self.status_indicator.setToolTip(tooltip)
-        
-    def update_autostart_indicator(self, status):
-        """Actualizar el indicador visual de inicio automático
-        status puede ser: 'enabled' (verde), 'disabled' (rojo), 'unknown' (amarillo)
-        """
-        if status == 'enabled':
-            color = 'green'
-            tooltip = 'Inicio automático habilitado'
-        elif status == 'disabled':
-            color = 'red'
-            tooltip = 'Inicio automático deshabilitado'
-        else:  # unknown
-            color = 'yellow'
-            tooltip = 'Estado de inicio automático desconocido'
-        
-        self.autostart_indicator.setStyleSheet(f"background-color: {color}; border: 1px solid black;")
-        self.autostart_indicator.setToolTip(tooltip)
         
     def start_nginx_server(self):
         """Iniciar Nginx"""
@@ -971,71 +694,6 @@ class PyginxApp(QMainWindow):
             # Actualizar indicador visual a amarillo (desconocido) si hay error
             self.update_status_indicator('unknown')
         
-    def enable_nginx_autostart(self):
-        """Habilitar el inicio automático de Nginx con el sistema"""
-        success, message = self.nginx_manager.enable_nginx_autostart()
-        if success:
-            QMessageBox.information(self, "Inicio Automático", message)
-        else:
-            QMessageBox.critical(self, "Error", message)
-        
-        # Actualizar el estado del inicio automático
-        self.update_autostart_status()
-    
-    def disable_nginx_autostart(self):
-        """Deshabilitar el inicio automático de Nginx con el sistema"""
-        success, message = self.nginx_manager.disable_nginx_autostart()
-        if success:
-            QMessageBox.information(self, "Inicio Automático", message)
-        else:
-            QMessageBox.critical(self, "Error", message)
-        
-        # Actualizar el estado del inicio automático
-        self.update_autostart_status()
-    
-    def update_autostart_status(self):
-        """Actualizar el estado del inicio automático"""
-        success, message, is_enabled = self.nginx_manager.check_nginx_autostart_status()
-        if success:
-            self.autostart_status_label.setText(f"Inicio Auto: {'Habilitado' if is_enabled else 'Deshabilitado'}")
-            # Actualizar indicador visual según el estado real
-            if is_enabled:
-                self.update_autostart_indicator('enabled')  # Verde si está habilitado
-            else:
-                self.update_autostart_indicator('disabled')  # Rojo si está deshabilitado
-        else:
-            self.autostart_status_label.setText("Inicio Auto: Error")
-            # Actualizar indicador visual a amarillo (desconocido) si hay error
-            self.update_autostart_indicator('unknown')
-    
-    def check_nginx_status_server(self):
-        """Verificar estado de Nginx"""
-        # Verificar estado del servidor
-        success, message, is_running = self.nginx_manager.check_nginx_status()
-        self.status_label.setText(f"Estado: {'Corriendo' if is_running else 'Detenido'}")
-        
-        if success:
-            # Actualizar puerto
-            _, port_info, ports = self.nginx_manager.get_nginx_ports()
-            if ports:
-                self.port_label.setText(f"Puerto: {', '.join(ports)}")
-            else:
-                self.port_label.setText("Puerto: Desconocido")
-            QMessageBox.information(self, "Nginx", message)
-            # Actualizar indicador visual según el estado real
-            if is_running:
-                self.update_status_indicator('online')  # Verde si está corriendo
-            else:
-                self.update_status_indicator('offline')  # Rojo si está detenido
-        else:
-            self.port_label.setText("Puerto: Error")
-            QMessageBox.critical(self, "Error", message)
-            # Actualizar indicador visual a amarillo (desconocido) si hay error
-            self.update_status_indicator('unknown')
-        
-        # También verificar y actualizar el estado del inicio automático
-        self.update_autostart_status()
-        
     def create_config_tab(self):
         """Crear pestaña para gestión de configuración"""
         config_tab = QWidget()
@@ -1064,13 +722,6 @@ class PyginxApp(QMainWindow):
         config_editor_group = QGroupBox("Editor de Configuración")
         editor_layout = QVBoxLayout(config_editor_group)
         
-        # Caja de direcciones para mostrar el archivo actual
-        self.current_config_file = self.nginx_manager.config_file  # Variable para almacenar la ruta actual
-        self.config_path_label = QLabel(f"Archivo: {self.current_config_file}")
-        self.config_path_label.setFont(QFont("Courier", 10))
-        self.config_path_label.setStyleSheet("background-color: #f0f0f0; padding: 5px; border: 1px solid gray;")
-        editor_layout.addWidget(self.config_path_label)
-        
         self.config_editor = QTextEdit()
         self.config_editor.setFont(QFont("Courier", 12))
         editor_layout.addWidget(self.config_editor)
@@ -1081,42 +732,13 @@ class PyginxApp(QMainWindow):
         self.save_config_btn = QPushButton("Guardar Configuración")
         self.test_config_btn = QPushButton("Probar Configuración")
         self.backup_config_btn = QPushButton("Crear Backup")
-        self.select_config_btn = QPushButton("Seleccionar Archivo")
-        self.reset_config_btn = QPushButton("Restaurar Config Predeterminada")
         
         file_btn_layout.addWidget(self.load_config_btn)
         file_btn_layout.addWidget(self.save_config_btn)
         file_btn_layout.addWidget(self.test_config_btn)
         file_btn_layout.addWidget(self.backup_config_btn)
-        file_btn_layout.addWidget(self.select_config_btn)
-        file_btn_layout.addWidget(self.reset_config_btn)
         
         editor_layout.addLayout(file_btn_layout)
-
-        # Conectar el botón de reseteo de configuración
-        self.reset_config_btn.clicked.connect(self.reset_default_config)
-        
-        # Grupo para configuración de puerto
-        port_group = QGroupBox("Configuración de Puerto")
-        port_layout = QHBoxLayout(port_group)
-        
-        port_layout.addWidget(QLabel("Puerto:"))
-        self.port_input = QSpinBox()
-        self.port_input.setRange(1, 65535)
-        self.port_input.setValue(80)  # Valor predeterminado
-        self.port_input.setToolTip("Puerto en el que Nginx escuchará conexiones")
-        
-        self.update_port_btn = QPushButton("Actualizar Puerto")
-        self.update_port_btn.setToolTip("Actualizar el puerto en la configuración actual y reiniciar Nginx si está en marcha")
-        
-        port_layout.addWidget(self.port_input)
-        port_layout.addWidget(self.update_port_btn)
-        port_layout.addStretch()
-        
-        editor_layout.addWidget(port_group)
-        
-        # Conectar el botón de actualización de puerto
-        self.update_port_btn.clicked.connect(self.update_port_in_config)
         
         layout.addWidget(config_editor_group)
         
@@ -1130,106 +752,39 @@ class PyginxApp(QMainWindow):
         self.backup_config_btn.clicked.connect(self.backup_config)
         self.load_profile_btn.clicked.connect(self.load_profile)
         self.save_profile_btn.clicked.connect(self.save_profile)
-        self.select_config_btn.clicked.connect(self.select_config_file)
 
     def load_config_file(self):
-        """Cargar archivo de configuración principal de Nginx"""
+        """Cargar archivo de configuración"""
         try:
             with open(self.nginx_manager.config_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 self.config_editor.setPlainText(content)
             
-            # Actualizar la variable y la caja de direcciones con la ruta del archivo
-            self.current_config_file = self.nginx_manager.config_file
-            self.config_path_label.setText(f"Archivo: {self.current_config_file}")
-            
             if self.logger:
-                self.logger.info(f"Configuración cargada desde {self.current_config_file}")
+                self.logger.info(f"Configuración cargada desde {self.nginx_manager.config_file}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el archivo de configuración:\n{str(e)}")
 
     def save_config_file(self):
         """Guardar archivo de configuración"""
         try:
-            # Usar la variable de instancia que almacena la ruta del archivo actual
-            current_file_path = self.current_config_file
-            
-            # Verificar si necesitamos permisos elevados para este archivo
-            if current_file_path.startswith('/etc/') or current_file_path.startswith('/usr/') or current_file_path.startswith('/var/'):
-                # Este archivo está en un directorio protegido, necesitamos usar sudo
-                # Primero, crear backup si el archivo existe
-                if os.path.exists(current_file_path):
-                    success, result = self.nginx_manager.run_command_with_password(f"sudo cp {current_file_path} {current_file_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-                    if success:
-                        if self.logger:
-                            self.logger.info(f"Backup creado: {current_file_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-                    else:
-                        if self.logger:
-                            self.logger.warning(f"Error al crear backup: {result}")
-                        # Continuar aunque el backup falle
-                
-                # Guardar el contenido en un archivo temporal
-                temp_config = f"/tmp/temp_nginx_config_{int(datetime.now().timestamp())}"
-                with open(temp_config, 'w', encoding='utf-8') as f:
-                    f.write(self.config_editor.toPlainText())
-                
-                # Copiar con permisos elevados
-                success, result = self.nginx_manager.run_command_with_password(f"sudo cp {temp_config} {current_file_path}")
-                # Eliminar archivo temporal
-                try:
-                    os.remove(temp_config)
-                except:
-                    pass  # No hacer nada si no se puede eliminar el archivo temporal
-                
-                if success:
-                    if self.logger:
-                        self.logger.info(f"Configuración guardada en {current_file_path}")
-                    QMessageBox.information(self, "Éxito", "Configuración guardada correctamente")
-                else:
-                    QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo de configuración:\n{result}")
-                    if self.logger:
-                        self.logger.error(f"Error al guardar configuración: {result}")
-            else:
-                # Archivo está en directorio que no requiere permisos elevados
-                # Antes de guardar, hacer backup si existe el archivo
-                if os.path.exists(current_file_path):
-                    backup_path = f"{current_file_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    import shutil
-                    shutil.copy2(current_file_path, backup_path)
-                    if self.logger:
-                        self.logger.info(f"Backup creado: {backup_path}")
-                
-                # Guardar el contenido actual
-                with open(current_file_path, 'w', encoding='utf-8') as f:
-                    f.write(self.config_editor.toPlainText())
-                
+            # Antes de guardar, hacer backup si existe el archivo
+            if os.path.exists(self.nginx_manager.config_file):
+                backup_path = f"{self.nginx_manager.config_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                import shutil
+                shutil.copy2(self.nginx_manager.config_file, backup_path)
                 if self.logger:
-                    self.logger.info(f"Configuración guardada en {current_file_path}")
-                QMessageBox.information(self, "Éxito", "Configuración guardada correctamente")
+                    self.logger.info(f"Backup creado: {backup_path}")
+            
+            # Guardar el contenido actual
+            with open(self.nginx_manager.config_file, 'w', encoding='utf-8') as f:
+                f.write(self.config_editor.toPlainText())
+            
+            if self.logger:
+                self.logger.info(f"Configuración guardada en {self.nginx_manager.config_file}")
+            QMessageBox.information(self, "Éxito", "Configuración guardada correctamente")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo de configuración:\n{str(e)}")
-
-    def select_config_file(self):
-        """Seleccionar archivo de configuración personalizado"""
-        config_file, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar archivo de configuración", 
-            "/etc/nginx", "Archivos de configuración (*.conf *.config);;Todos los archivos (*)"
-        )
-        
-        if config_file:
-            try:
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    self.config_editor.setPlainText(content)
-                
-                # Actualizar la variable y la caja de direcciones con la ruta del archivo
-                self.current_config_file = config_file
-                self.config_path_label.setText(f"Archivo: {self.current_config_file}")
-                
-                if self.logger:
-                    self.logger.info(f"Configuración cargada desde {self.current_config_file}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo leer el archivo de configuración:\n{str(e)}")
 
     def test_config(self):
         """Probar la configuración de Nginx"""
@@ -1239,25 +794,12 @@ class PyginxApp(QMainWindow):
             with open(temp_config, 'w', encoding='utf-8') as f:
                 f.write(self.config_editor.toPlainText())
             
-            # Probar la configuración usando el comando de nginx con comprobación de sintaxis
-            # Usamos -c para especificar el archivo de configuración temporal
+            # Probar la configuración
             result = subprocess.run(["nginx", "-t", "-c", temp_config], 
                                   capture_output=True, text=True)
             
-            # Si falla por permisos, intentamos con sudo
-            if result.returncode != 0 and ("Permission denied" in result.stderr or "failed (13: Permission denied)" in result.stderr):
-                # Crear un archivo temporal con la configuración actual para probarla
-                success, output = self.nginx_manager.run_command_with_password(f"sudo nginx -t -c {temp_config}")
-                if success:
-                    result = subprocess.CompletedProcess(args=["nginx", "-t", "-c", temp_config], returncode=0, stdout=output, stderr="")
-                else:
-                    result = subprocess.CompletedProcess(args=["nginx", "-t", "-c", temp_config], returncode=1, stdout="", stderr=output)
-            
             # Eliminar archivo temporal
-            try:
-                os.remove(temp_config)
-            except:
-                pass  # No hacer nada si no se puede eliminar el archivo temporal
+            os.remove(temp_config)
             
             if result.returncode == 0:
                 QMessageBox.information(self, "Prueba de Configuración", 
@@ -1265,18 +807,10 @@ class PyginxApp(QMainWindow):
                 if self.logger:
                     self.logger.info("Configuración de Nginx probada y válida")
             else:
-                # Si la salida de error contiene warnings, los mostramos como información adicional
-                error_msg = result.stderr
-                if "warn" in error_msg.lower():
-                    QMessageBox.information(self, "Prueba de Configuración", 
-                                          f"La configuración es sintácticamente válida pero con advertencias:\n{error_msg}")
-                    if self.logger:
-                        self.logger.info(f"Configuración con advertencias: {error_msg}")
-                else:
-                    QMessageBox.critical(self, "Error en Configuración", 
-                                       f"Errores encontrados en la configuración:\n{error_msg}")
-                    if self.logger:
-                        self.logger.error(f"Errores en configuración de Nginx: {error_msg}")
+                QMessageBox.critical(self, "Error en Configuración", 
+                                   f"Errores encontrados en la configuración:\n{result.stderr}")
+                if self.logger:
+                    self.logger.error(f"Errores en configuración de Nginx: {result.stderr}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Ocurrió un error al probar la configuración:\n{str(e)}")
 
@@ -1286,220 +820,27 @@ class PyginxApp(QMainWindow):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             backup_path = f"{self.nginx_manager.config_file}.backup_{timestamp}"
             
-            # Verificar si necesitamos permisos elevados para este archivo
-            if self.nginx_manager.config_file.startswith('/etc/') or self.nginx_manager.config_file.startswith('/usr/') or self.nginx_manager.config_file.startswith('/var/'):
-                # Este archivo está en un directorio protegido, necesitamos usar sudo
-                success, result = self.nginx_manager.run_command_with_password(f"sudo cp {self.nginx_manager.config_file} {backup_path}")
-                
-                if success:
-                    if self.logger:
-                        self.logger.info(f"Backup de configuración creado: {backup_path}")
-                    QMessageBox.information(self, "Backup", f"Backup creado exitosamente:\n{backup_path}")
-                else:
-                    QMessageBox.critical(self, "Error", f"No se pudo crear el backup:\n{result}")
-                    if self.logger:
-                        self.logger.error(f"Error al crear backup: {result}")
-            else:
-                # Archivo está en directorio que no requiere permisos elevados
-                import shutil
-                shutil.copy2(self.nginx_manager.config_file, backup_path)
-                
-                if self.logger:
-                    self.logger.info(f"Backup de configuración creado: {backup_path}")
-                QMessageBox.information(self, "Backup", f"Backup creado exitosamente:\n{backup_path}")
+            import shutil
+            shutil.copy2(self.nginx_manager.config_file, backup_path)
+            
+            if self.logger:
+                self.logger.info(f"Backup de configuración creado: {backup_path}")
+            QMessageBox.information(self, "Backup", f"Backup creado exitosamente:\n{backup_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo crear el backup:\n{str(e)}")
-
-    def reset_default_config(self):
-        """Restaurar la configuración predeterminada de Nginx"""
-        reply = QMessageBox.question(self, "Confirmar Restauración", 
-                                   "¿Está seguro de restaurar la configuración predeterminada de Nginx?\n\n"
-                                   "Esto reemplazará la configuración actual con una configuración básica funcional.",
-                                   QMessageBox.Yes | QMessageBox.No)
-        
-        if reply != QMessageBox.Yes:
-            return
-
-        # Leer la configuración predeterminada desde el archivo en el directorio profiles
-        try:
-            import os
-            # Construir la ruta al archivo predeterminado en el directorio profiles
-            default_config_path = os.path.join(os.path.dirname(__file__), "profiles", "configs", "predeterminado.conf")
-            
-            with open(default_config_path, 'r', encoding='utf-8') as f:
-                default_config = f.read()
-        
-        except FileNotFoundError:
-            # Si no existe el archivo en profiles, usar la configuración predeterminada codificada
-            default_config = """# Configuración predeterminada de Nginx
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 768;
-    # multi_accept on;
-}
-
-http {
-
-    ##
-    # Basic Settings
-    ##
-
-    sendfile on;
-    tcp_nopush on;
-    types_hash_max_size 2048;
-    # server_tokens off;
-
-    # server_names_hash_bucket_size 64;
-    # server_name_in_redirect off;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    ##
-    # SSL Settings
-    ##
-
-    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
-    ssl_prefer_server_ciphers on;
-
-    ##
-    # Logging Settings
-    ##
-
-    access_log /var/log/nginx/access.log;
-
-    ##
-    # Gzip Settings
-    ##
-
-    gzip on;
-
-    # gzip_vary on;
-    # gzip_proxied any;
-    # gzip_comp_level 6;
-    # gzip_buffers 16 8k;
-    # gzip_http_version 1.1;
-    # gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-
-    ##
-    # Virtual Host Configs
-    ##
-
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-
-
-#mail {
-#    # See sample authentication script at:
-#    # http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
-#
-#    # auth_http localhost/auth.php;
-#    # pop3_capabilities "TOP" "USER";
-#    # imap_capabilities "IMAP4rev1" "UIDPLUS";
-#
-#    server {
-#        listen      110;
-#        protocol    pop3;
-#        proxy       on;
-#    }
-#
-#    server {
-#        listen      143;
-#        protocol    imap;
-#        proxy       on;
-#    }
-#}
-"""
-        
-        # Mostrar la configuración en el editor
-        self.config_editor.setPlainText(default_config)
-        
-        # Actualizar la variable y la caja de direcciones con la ruta del archivo
-        self.current_config_file = self.nginx_manager.config_file
-        self.config_path_label.setText(f"Archivo: {self.current_config_file}")
-        
-        QMessageBox.information(self, "Configuración Restaurada", 
-                              "La configuración predeterminada de Nginx ha sido cargada en el editor.\n"
-                              "Puede guardarla y probarla antes de usarla.")
-        
-        if self.logger:
-            self.logger.info("Configuración predeterminada de Nginx restaurada")
-
-    def update_port_in_config(self):
-        """Actualizar el puerto en el archivo de configuración"""
-        new_port = str(self.port_input.value())
-        
-        # Obtener el contenido actual del editor
-        current_config = self.config_editor.toPlainText()
-        
-        # Expresión regular para encontrar líneas con 'listen' y puertos
-        # Busca patrones como 'listen 80;' o 'listen *:80;'
-        import re
-        # Patrón para 'listen' con puerto numérico
-        pattern = r'(listen\s+[^;]*:)?(\d+)(\s*ssl)?(\s*;|;)'
-        
-        # Reemplazar todos los puertos numéricos después de 'listen' con el nuevo puerto
-        def replace_port(match):
-            prefix = match.group(1) or "listen "
-            # Mantener 'ssl' si estaba presente
-            ssl_part = match.group(3) or ""
-            end_part = match.group(4) or ";"
-            # Si el prefijo incluye dirección IP, mantenerla
-            if prefix and ':' in prefix and not prefix.endswith(':'):
-                return f"{prefix}{new_port}{ssl_part}{end_part}"
-            else:
-                return f"listen {new_port}{ssl_part}{end_part}"
-        
-        updated_config = re.sub(pattern, replace_port, current_config)
-        
-        # Si no se encontraron coincidencias, agregar una configuración de listen al inicio
-        if updated_config == current_config:
-            # Buscar sección 'server' y agregar listen justo después de '{'
-            server_pattern = r'(server\s*{)'
-            def add_listen_after_server(match):
-                return f"{match.group(1)}\n    listen {new_port};"
-            
-            updated_config = re.sub(server_pattern, add_listen_after_server, current_config, count=1)
-        
-        # Actualizar el editor con la configuración actualizada
-        self.config_editor.setPlainText(updated_config)
-        
-        # Mostrar mensaje de confirmación
-        QMessageBox.information(self, "Puerto Actualizado", 
-                               f"El puerto ha sido actualizado a {new_port} en la configuración.\n"
-                               f"Recuerda guardar la configuración y reiniciar Nginx para que los cambios surtan efecto.")
-        
-        if self.logger:
-            self.logger.info(f"Puerto actualizado a {new_port} en la configuración")
 
     def load_profile(self):
         """Cargar perfil de configuración"""
         profile = self.profile_combo.currentText()
-        
-        # Primero buscar en el directorio profiles/profiles
-        profile_path = os.path.join(os.path.dirname(__file__), "profiles", "profiles", f"{profile.lower()}.conf")
-        
-        # Si no existe en profiles/profiles, intentar con la ubicación original
-        if not os.path.exists(profile_path):
-            profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
         
         try:
             with open(profile_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 self.config_editor.setPlainText(content)
             
-            # Actualizar la variable y la caja de direcciones con la ruta del perfil
-            self.current_config_file = profile_path
-            self.config_path_label.setText(f"Archivo: {self.current_config_file}")
-            
             if self.logger:
-                self.logger.info(f"Perfil {profile} cargado desde {self.current_config_file}")
+                self.logger.info(f"Perfil {profile} cargado desde {profile_path}")
             QMessageBox.information(self, "Perfil Cargado", f"Perfil {profile} cargado correctamente")
         except FileNotFoundError:
             # Si no existe el perfil específico, cargar uno predeterminado
@@ -1510,58 +851,18 @@ http {
     def save_profile(self):
         """Guardar perfil de configuración"""
         profile = self.profile_combo.currentText()
-        # Guardar en el directorio profiles/profiles
-        profile_path = os.path.join(os.path.dirname(__file__), "profiles", "profiles", f"{profile.lower()}.conf")
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
         
         try:
-            # Verificar si necesitamos permisos elevados para este archivo
-            if profile_path.startswith('/etc/') or profile_path.startswith('/usr/') or profile_path.startswith('/var/'):
-                # Este archivo está en un directorio protegido, necesitamos usar sudo
-                # Crear directorio de perfiles si no existe usando sudo
-                success, result = self.nginx_manager.run_command_with_password(f"sudo mkdir -p {os.path.dirname(profile_path)}")
-                if not success and "File exists" not in result:
-                    if self.logger:
-                        self.logger.warning(f"Error al crear directorio de perfiles: {result}")
-                    # Continuar intentando guardar de todas formas
-                
-                # Guardar el contenido en un archivo temporal
-                temp_config = f"/tmp/temp_profile_config_{int(datetime.now().timestamp())}"
-                with open(temp_config, 'w', encoding='utf-8') as f:
-                    f.write(self.config_editor.toPlainText())
-                
-                # Copiar con permisos elevados
-                success, result = self.nginx_manager.run_command_with_password(f"sudo cp {temp_config} {profile_path}")
-                # Eliminar archivo temporal
-                try:
-                    os.remove(temp_config)
-                except:
-                    pass  # No hacer nada si no se puede eliminar el archivo temporal
-                
-                if success:
-                    # No cambiar la ruta del archivo actual cuando se guarda como perfil
-                    # Solo se guarda el contenido en el archivo de perfil
-                    
-                    if self.logger:
-                        self.logger.info(f"Perfil {profile} guardado en {profile_path}")
-                    QMessageBox.information(self, "Perfil Guardado", f"Perfil {profile} guardado correctamente")
-                else:
-                    QMessageBox.critical(self, "Error", f"No se pudo guardar el perfil:\n{result}")
-                    if self.logger:
-                        self.logger.error(f"Error al guardar perfil: {result}")
-            else:
-                # Archivo está en directorio que no requiere permisos elevados
-                # Crear directorio de perfiles si no existe
-                os.makedirs(os.path.dirname(profile_path), exist_ok=True)
-                
-                with open(profile_path, 'w', encoding='utf-8') as f:
-                    f.write(self.config_editor.toPlainText())
-                
-                # No cambiar la ruta del archivo actual cuando se guarda como perfil
-                # Solo se guarda el contenido en el archivo de perfil
-                
-                if self.logger:
-                    self.logger.info(f"Perfil {profile} guardado en {profile_path}")
-                QMessageBox.information(self, "Perfil Guardado", f"Perfil {profile} guardado correctamente")
+            # Crear directorio de perfiles si no existe
+            os.makedirs(os.path.dirname(profile_path), exist_ok=True)
+            
+            with open(profile_path, 'w', encoding='utf-8') as f:
+                f.write(self.config_editor.toPlainText())
+            
+            if self.logger:
+                self.logger.info(f"Perfil {profile} guardado en {profile_path}")
+            QMessageBox.information(self, "Perfil Guardado", f"Perfil {profile} guardado correctamente")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo guardar el perfil:\n{str(e)}")
 
@@ -1727,7 +1028,6 @@ http {
         
         if profile in profiles_content:
             self.config_editor.setPlainText(profiles_content[profile])
-            # No cambiar la ruta del archivo cuando se carga un perfil predeterminado
             if self.logger:
                 self.logger.info(f"Perfil predeterminado {profile} cargado")
             QMessageBox.information(self, "Perfil Cargado", 

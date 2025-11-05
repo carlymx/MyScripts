@@ -250,13 +250,6 @@ class NginxManager:
     def start_nginx(self):
         """Iniciar el servidor Nginx"""
         try:
-            # Primero, probar la configuración antes de iniciar
-            config_valid, config_msg = self.test_nginx_config()
-            if not config_valid:
-                if self.logger:
-                    self.logger.error(f"La configuración de Nginx no es válida: {config_msg}")
-                return False, f"La configuración de Nginx no es válida: {config_msg}"
-            
             # Determinar si usar sudo basado en permisos
             if not self.check_user_permissions():
                 # Si no somos root, usar la función run_command_with_password
@@ -287,33 +280,6 @@ class NginxManager:
             if self.logger:
                 self.logger.error(f"Excepción al iniciar Nginx: {str(e)}")
             return False, f"Excepción al iniciar Nginx: {str(e)}"
-
-    def test_nginx_config(self):
-        """Probar la configuración de Nginx"""
-        try:
-            # Probar la configuración usando el comando de nginx con comprobación de sintaxis
-            result = subprocess.run(["nginx", "-t"], capture_output=True, text=True)
-            
-            # Si falla por permisos, intentamos con sudo
-            if result.returncode != 0 and ("Permission denied" in result.stderr or "failed (13: Permission denied)" in result.stderr):
-                # Usar el sistema de contraseñas de la aplicación para probar con sudo
-                success, output = self.run_command_with_password("sudo nginx -t")
-                if success:
-                    return True, "Configuración válida"
-                else:
-                    return False, output
-            
-            if result.returncode == 0:
-                return True, "Configuración válida"
-            else:
-                # Si la salida de error contiene warnings, los mostramos como información adicional
-                error_msg = result.stderr
-                if "warn" in error_msg.lower():
-                    return True, f"Configuración válida con advertencias: {error_msg}"
-                else:
-                    return False, error_msg
-        except Exception as e:
-            return False, f"Error al probar la configuración: {str(e)}"
 
     def stop_nginx(self):
         """Detener el servidor Nginx"""
@@ -1082,19 +1048,14 @@ class PyginxApp(QMainWindow):
         self.test_config_btn = QPushButton("Probar Configuración")
         self.backup_config_btn = QPushButton("Crear Backup")
         self.select_config_btn = QPushButton("Seleccionar Archivo")
-        self.reset_config_btn = QPushButton("Restaurar Config Predeterminada")
         
         file_btn_layout.addWidget(self.load_config_btn)
         file_btn_layout.addWidget(self.save_config_btn)
         file_btn_layout.addWidget(self.test_config_btn)
         file_btn_layout.addWidget(self.backup_config_btn)
         file_btn_layout.addWidget(self.select_config_btn)
-        file_btn_layout.addWidget(self.reset_config_btn)
         
         editor_layout.addLayout(file_btn_layout)
-
-        # Conectar el botón de reseteo de configuración
-        self.reset_config_btn.clicked.connect(self.reset_default_config)
         
         # Grupo para configuración de puerto
         port_group = QGroupBox("Configuración de Puerto")
@@ -1240,13 +1201,13 @@ class PyginxApp(QMainWindow):
                 f.write(self.config_editor.toPlainText())
             
             # Probar la configuración usando el comando de nginx con comprobación de sintaxis
-            # Usamos -c para especificar el archivo de configuración temporal
+            # Primero intentamos con privilegios normales, y si falla por permisos, usamos sudo
             result = subprocess.run(["nginx", "-t", "-c", temp_config], 
                                   capture_output=True, text=True)
             
             # Si falla por permisos, intentamos con sudo
             if result.returncode != 0 and ("Permission denied" in result.stderr or "failed (13: Permission denied)" in result.stderr):
-                # Crear un archivo temporal con la configuración actual para probarla
+                # Usar el sistema de contraseñas de la aplicación para probar con sudo
                 success, output = self.nginx_manager.run_command_with_password(f"sudo nginx -t -c {temp_config}")
                 if success:
                     result = subprocess.CompletedProcess(args=["nginx", "-t", "-c", temp_config], returncode=0, stdout=output, stderr="")
@@ -1310,127 +1271,6 @@ class PyginxApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo crear el backup:\n{str(e)}")
 
-    def reset_default_config(self):
-        """Restaurar la configuración predeterminada de Nginx"""
-        reply = QMessageBox.question(self, "Confirmar Restauración", 
-                                   "¿Está seguro de restaurar la configuración predeterminada de Nginx?\n\n"
-                                   "Esto reemplazará la configuración actual con una configuración básica funcional.",
-                                   QMessageBox.Yes | QMessageBox.No)
-        
-        if reply != QMessageBox.Yes:
-            return
-
-        # Leer la configuración predeterminada desde el archivo en el directorio profiles
-        try:
-            import os
-            # Construir la ruta al archivo predeterminado en el directorio profiles
-            default_config_path = os.path.join(os.path.dirname(__file__), "profiles", "configs", "predeterminado.conf")
-            
-            with open(default_config_path, 'r', encoding='utf-8') as f:
-                default_config = f.read()
-        
-        except FileNotFoundError:
-            # Si no existe el archivo en profiles, usar la configuración predeterminada codificada
-            default_config = """# Configuración predeterminada de Nginx
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 768;
-    # multi_accept on;
-}
-
-http {
-
-    ##
-    # Basic Settings
-    ##
-
-    sendfile on;
-    tcp_nopush on;
-    types_hash_max_size 2048;
-    # server_tokens off;
-
-    # server_names_hash_bucket_size 64;
-    # server_name_in_redirect off;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    ##
-    # SSL Settings
-    ##
-
-    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
-    ssl_prefer_server_ciphers on;
-
-    ##
-    # Logging Settings
-    ##
-
-    access_log /var/log/nginx/access.log;
-
-    ##
-    # Gzip Settings
-    ##
-
-    gzip on;
-
-    # gzip_vary on;
-    # gzip_proxied any;
-    # gzip_comp_level 6;
-    # gzip_buffers 16 8k;
-    # gzip_http_version 1.1;
-    # gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-
-    ##
-    # Virtual Host Configs
-    ##
-
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-
-
-#mail {
-#    # See sample authentication script at:
-#    # http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
-#
-#    # auth_http localhost/auth.php;
-#    # pop3_capabilities "TOP" "USER";
-#    # imap_capabilities "IMAP4rev1" "UIDPLUS";
-#
-#    server {
-#        listen      110;
-#        protocol    pop3;
-#        proxy       on;
-#    }
-#
-#    server {
-#        listen      143;
-#        protocol    imap;
-#        proxy       on;
-#    }
-#}
-"""
-        
-        # Mostrar la configuración en el editor
-        self.config_editor.setPlainText(default_config)
-        
-        # Actualizar la variable y la caja de direcciones con la ruta del archivo
-        self.current_config_file = self.nginx_manager.config_file
-        self.config_path_label.setText(f"Archivo: {self.current_config_file}")
-        
-        QMessageBox.information(self, "Configuración Restaurada", 
-                              "La configuración predeterminada de Nginx ha sido cargada en el editor.\n"
-                              "Puede guardarla y probarla antes de usarla.")
-        
-        if self.logger:
-            self.logger.info("Configuración predeterminada de Nginx restaurada")
-
     def update_port_in_config(self):
         """Actualizar el puerto en el archivo de configuración"""
         new_port = str(self.port_input.value())
@@ -1481,13 +1321,7 @@ http {
     def load_profile(self):
         """Cargar perfil de configuración"""
         profile = self.profile_combo.currentText()
-        
-        # Primero buscar en el directorio profiles/profiles
-        profile_path = os.path.join(os.path.dirname(__file__), "profiles", "profiles", f"{profile.lower()}.conf")
-        
-        # Si no existe en profiles/profiles, intentar con la ubicación original
-        if not os.path.exists(profile_path):
-            profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
         
         try:
             with open(profile_path, 'r', encoding='utf-8') as f:
@@ -1510,8 +1344,7 @@ http {
     def save_profile(self):
         """Guardar perfil de configuración"""
         profile = self.profile_combo.currentText()
-        # Guardar en el directorio profiles/profiles
-        profile_path = os.path.join(os.path.dirname(__file__), "profiles", "profiles", f"{profile.lower()}.conf")
+        profile_path = os.path.join(self.nginx_manager.config_dir, f"profiles/{profile.lower()}.conf")
         
         try:
             # Verificar si necesitamos permisos elevados para este archivo

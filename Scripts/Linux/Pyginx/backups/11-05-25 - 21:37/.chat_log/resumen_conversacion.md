@@ -55,15 +55,6 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 - Actualizada la funcionalidad de guardar, probar y crear backups para usar sudo cuando sea necesario
 - Implementada lógica para detectar cuándo un archivo requiere permisos elevados
 
-## Últimos Cambios Realizados
-
-- Creación del directorio `profiles/` y sus subdirectorios (`configs/`, `sites/`, `profiles/`) para organizar archivos de configuración
-- Implementación de archivos de configuración predeterminados en `profiles/configs/`
-- Creación de archivos de ejemplo para sitios en `profiles/sites/`
-- Modificación de la función `reset_default_config` para usar el archivo predeterminado del directorio `profiles/configs/`
-- Actualización de las funciones `load_profile` y `save_profile` para usar el directorio `profiles/profiles/`
-- Actualización de la documentación (README.md, README_ES.md, QWEN.md) para reflejar la nueva estructura de directorios
-
 ## Tecnologías Utilizadas
 
 - Python 3
@@ -84,7 +75,6 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 - La detección de puertos ahora se enfoca en archivos de sitios habilitados (/etc/nginx/sites-enabled/)
 - La caja de direcciones muestra claramente qué archivo se está editando actualmente
 - El manejo de permisos permite operaciones completas en directorios protegidos
-- La nueva estructura de perfiles en `profiles/` facilita la organización y reutilización de configuraciones de Nginx
 
 ## Iteración Actual
 
@@ -95,5 +85,3 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 - Mejora en el manejo de permisos para operaciones del sistema
 - Actualización de todas las funciones de configuración para trabajar correctamente con permisos elevados
 - Mejora en la experiencia del usuario con información adicional sobre el inicio automático
-- Organización de archivos de configuración en el directorio profiles/
-- Actualización de funciones para usar archivos de configuración desde directorios organizados

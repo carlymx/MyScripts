@@ -1,0 +1,13 @@
+{
+  "directory": "/home/carly/ftp_share",
+  "port": 2122,
+  "users": [
+    {
+      "username": "secure_user",
+      "password": "SecureP@ss123",
+      "permissions": "elr",
+      "enabled": true,
+      "anonymous": false
+    }
+  ]
+}

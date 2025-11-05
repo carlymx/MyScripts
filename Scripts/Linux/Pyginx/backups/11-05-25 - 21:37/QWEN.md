@@ -53,10 +53,6 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 - .log/: Directorio para archivos de log
 - .chat_log/resumen_conversacion.md: Resumen del desarrollo del proyecto
 - backups/: Directorio para archivos de backup
-- profiles/: Directorio para perfiles de configuración
-- profiles/configs/: Archivos de configuración predeterminados
-- profiles/sites/: Archivos de configuración de sitios
-- profiles/profiles/: Perfiles de configuración personalizados
 - start_pyginx: Script para iniciar la aplicación
 
 ## Instrucciones para Iteraciones Futuras
@@ -82,10 +78,6 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 19. Preservar la caja de direcciones que muestra la ruta del archivo actual
 20. Asegurar el manejo adecuado de permisos elevados para operaciones de sistema
 21. Mantener la funcionalidad de selección de archivos de configuración personalizados
-22. Mantener el directorio profiles/ organizado con subdirectorios para diferentes tipos de configuraciones (configs, sites, profiles)
-23. Asegurar que la función "Restaurar Config Predeterminada" use el archivo predeterminado del directorio profiles/configs/
-24. Mantener la funcionalidad de carga/guardado de perfiles desde/hacia el directorio profiles/profiles/
-25. Preservar la estructura de directorios para archivos de sitios en profiles/sites/
 
 ## Notas Adicionales
 
@@ -104,6 +96,3 @@ Pyginx es una aplicación GUI para la gestión de servidores Nginx en Linux. Pro
 - El sistema maneja correctamente operaciones que requieren permisos elevados
 - El script start_pyginx facilita la ejecución de la aplicación
 - Las operaciones de guardar, probar y crear backups utilizan sudo cuando es necesario para archivos del sistema
-- La nueva estructura de directorios `profiles/` organiza las configuraciones en subdirectorios (configs, sites, profiles)
-- La función "Restaurar Config Predeterminada" ahora utiliza el archivo predeterminado del directorio `profiles/configs/`
-- Las funciones de carga y guardado de perfiles utilizan el directorio `profiles/profiles/`

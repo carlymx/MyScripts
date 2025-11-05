@@ -51,10 +51,6 @@ Pyginx es una interfaz gráfica para la gestión de servidores Nginx en Linux. P
 - [Instrucciones para Qwen CLI](QWEN.md)
 - [Resumen de conversaciones](.chat_log/resumen_conversacion.md)
 
-## Configuraciones
-
-- [Perfiles de configuración](profiles/)
-
 ## Licencia
 
 Este proyecto está creado con fines educativos y de uso personal.

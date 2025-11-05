@@ -1,0 +1,20 @@
+{
+  "directory": "/home/carly/share/archivos",
+  "port": 51413,
+  "users": [
+    {
+      "username": "admin",
+      "password": "@1Qwertyuiop1@",
+      "permissions": "elradfmwMT",
+      "enabled": true,
+      "anonymous": false
+    },
+    {
+      "username": "Andres",
+      "password": "Serdna",
+      "permissions": "lr",
+      "enabled": true,
+      "anonymous": false
+    }
+  ]
+}

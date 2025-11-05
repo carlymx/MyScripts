@@ -1,0 +1,13 @@
+{
+  "directory": "/tmp",
+  "port": 21,
+  "users": [
+    {
+      "username": "admin",
+      "password": "admin",
+      "permissions": "elradfmwMT",
+      "enabled": true,
+      "anonymous": false
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "directory": "/tmp",
+  "port": 21,
+  "users": [
+    {
+      "username": "user",
+      "password": "password",
+      "permissions": "elr",
+      "enabled": true,
+      "anonymous": false
+    }
+  ]
+}
