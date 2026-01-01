@@ -1,23 +1,52 @@
-version: "2.1"
+# ==============================================================================
+# SERVIDOR DEDICADO DE PROJECT ZOMBOID (LinuxGSM Edition)
+# Versión: 2026.1 | Imagen: gameservermanagers/gameserver:pz
+# ==============================================================================
+#
+# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
+#    Project Zomboid es intensivo en escritura. Prepara la ruta:
+#    sudo mkdir -p /mnt/APPs/pzserver
+#    sudo chown -R 1000:1000 /mnt/APPs/pzserver
+#    sudo chmod -R 775 /mnt/APPs/pzserver
+#
+# 2. RECURSOS DE HARDWARE:
+#    - RAM: Se recomienda un mínimo de 4GB. Si planeas usar muchos MODS o 
+#      tener más de 10 jugadores, aumenta el límite de 'memory' a 8G.
+#    - CPU: El Ryzen 1700x gestionará bien el servidor, pero PZ agradece 
+#      frecuencias altas de reloj.
+#
+# 3. PUERTOS REQUERIDOS (Port Forwarding):
+#    - 16261 (UDP): Puerto principal (Handshake).
+#    - 16262 (UDP): Puerto de datos (Direct Connection).
+#
+# 4. CONFIGURACIÓN POST-INSTALACIÓN:
+#    Los archivos de configuración del mundo (nombre, dificultad, spawn) se
+#    generarán tras el primer inicio en: /mnt/APPs/pzserver/config-lgsm/pzserver/
+# ==============================================================================
+
 services:
   projectzomboid:
-    image: gameservermanagers/gameserver:pz
     container_name: pzserver
-    volumes:
-      - /mnt/APPs/pzserver:/data
-    ports:
-      - "16261:16261/udp"
-      - "16262:16262/udp"
+    image: gameservermanagers/gameserver:pz
+    restart: unless-stopped
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Madrid
-      - HOSTNAME=PZ Server
-      - UPDATE_ON_RESTART=true
+      - HOSTNAME=Zomboid_NAS_Server
+      - UPDATE_ON_RESTART=true # Busca actualizaciones de Steam al iniciar
       - GAMESERVER=pzserver
-    restart: unless-stopped
+    ports:
+      - "16261:16261/udp"
+      - "16262:16262/udp"
+    volumes:
+      # Datos del juego, configuraciones y partidas guardadas
+      - /mnt/APPs/pzserver:/data
+      # Sincronización horaria con el NAS
+      - /etc/localtime:/etc/localtime:ro
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          # Ajuste para 2026: PZ es exigente, 4GB es el mínimo para una experiencia fluida
+          cpus: '2.0' 
           memory: 4G
