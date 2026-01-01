@@ -1,25 +1,54 @@
+# ==============================================================================
+# SERVIDOR DEDICADO DE SATISFACTORY (wolveix/satisfactory-server)
+# Versión: 2026.1 | Compatible con Update 1.0+
 # Visitar: https://github.com/wolveix/satisfactory-server
+# ==============================================================================
+#
+# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
+#    Satisfactory genera archivos pesados. Asegura la ruta en tu TrueNAS:
+#    sudo mkdir -p /mnt/APPs/satisfactory/data
+#    sudo chown -R 1000:1000 /mnt/APPs/satisfactory/data
+#    sudo chmod -R 775 /mnt/APPs/satisfactory/data
+#
+# 2. RECURSOS DE HARDWARE (Crucial):
+#    - RAM: Satisfactory es extremadamente exigente. El mínimo son 8GB, pero
+#      en fábricas avanzadas (Late Game) puede requerir 12GB o 16GB.
+#    - CPU: El Ryzen 1700x es excelente para esto gracias a sus núcleos.
+#
+# 3. PUERTOS REQUERIDOS (Port Forwarding):
+#    - 7777 (UDP/TCP): Puerto principal de juego y Query.
+#    - 8888 (TCP): Puerto de la API de administración (opcional).
+#
+# 4. NOTA SOBRE EL PRIMER ARRANQUE:
+#    La descarga inicial de los archivos del servidor puede tardar (aprox. 10GB).
+#    Revisa los logs en Portainer para ver el progreso de SteamCMD.
+# ==============================================================================
 
 services:
   satisfactory-server:
-    container_name: 'satisfactory-server'
-    hostname: 'satisfactory-server'
-    image: 'wolveix/satisfactory-server:latest'
+    container_name: satisfactory-server
+    hostname: satisfactory-server
+    image: wolveix/satisfactory-server:latest
+    restart: unless-stopped
     ports:
       - '7777:7777/tcp'
       - '7777:7777/udp'
       - '8888:8888/tcp'
-    volumes:
-      - './satisfactory-server:/config'
     environment:
-      - MAXPLAYERS=4
-      - PGID=1000
       - PUID=1000
-      - STEAMBETA=false
-    restart: unless-stopped
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - MAXPLAYERS=4
+      - STEAMBETA=false # Cambiar a 'true' solo si usas la versión experimental
+    volumes:
+      # Datos de partida, configuración y binarios del juego
+      - /mnt/APPs/satisfactory/data:/config
+      # Sincronización horaria
+      - /etc/localtime:/etc/localtime:ro
     deploy:
       resources:
         limits:
+          # Ajuste para 2026: 8G es el punto de partida; 12G recomendado para megafactorías.
           memory: 8G
         reservations:
           memory: 4G
