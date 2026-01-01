@@ -1,3 +1,31 @@
+# ==============================================================================
+# SERVIDOR DEDICADO DE 7 DAYS TO DIE (LinuxGSM Edition)
+# Versión: 2026.1 | Imagen: vinanrra/7dtd-server
+# ==============================================================================
+#
+# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
+#    Ejecuta estos comandos para asegurar que LinuxGSM pueda escribir:
+#    sudo mkdir -p /mnt/APPs/7DTD-server/{saves,config,serverfiles,logs,backups}
+#    sudo chown -R 1000:1000 /mnt/APPs/7DTD-server
+#    sudo chmod -R 775 /mnt/APPs/7DTD-server
+#
+# 2. PUERTOS REQUERIDOS (Port Forwarding):
+#    - 26900 (TCP/UDP): Puerto principal de comunicación.
+#    - 26901-26902 (UDP): Puertos de consulta (Steam Query).
+#    - 8080-8082 (TCP): Web Dashboard / Telnet (opcional para administración).
+#
+# 3. GESTIÓN DE MODS Y ACTUALIZACIONES:
+#    - ALLOC_FIXES: Activa mejoras de rendimiento y comandos extra.
+#    - BACKUP: Si se activa, realiza copias automáticas a la hora definida.
+#    - START_MODE: Define qué hará el servidor al iniciar (3 = Instalar/Update y Start).
+#
+# 4. CONFIGURACIÓN DEL JUEGO:
+#    El archivo principal de ajustes (nombre del mundo, loot, etc.) se encuentra
+#    tras el primer arranque en: /mnt/APPs/7DTD-server/config/sdtdserver.cfg
+# ==============================================================================
+
+
+
 services:
   7dtdserver:
     container_name: 7dtdserver
