@@ -1,0 +1,48 @@
+# ==============================================================================
+# SERVIDOR DEDICADO DE CORE KEEPER - DOCKER COMPOSE / PORTAINER STACK
+# Versión: 2026.1 (Compatible con v1.1.x+)
+# ==============================================================================
+#
+# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
+#    Ejecuta estos comandos para crear las rutas y asignar los permisos correctos:
+#    sudo mkdir -p /mnt/APPs/CoreKeeper/data
+#    sudo chown -R 1000:1000 /mnt/APPs/CoreKeeper/data
+#    sudo chmod -R 755 /mnt/APPs/CoreKeeper/data
+#
+# 2. PUERTOS (Port Forwarding en Router):
+#    Para que tus amigos entren desde fuera, abre en tu router:
+#    - 27015/UDP (Protocolo de juego)
+#    - 27016/UDP (Protocolo de Steam/Query)
+#
+# 3. OPCIONES DE TEMPORADA (Variable SEASON):
+#    -1 = Automático (Sincronizado con la fecha del NAS)
+#     0 = Desactivado | 1 = Pascua | 2 = Halloween | 3 = Navidad
+#     4 = San Valentín | 5 = Aniversario | 6 = Cerezo | 7 = Año Nuevo Lunar
+#
+# 4. CÓMO ENTRAR:
+#    Una vez desplegado, revisa los "Logs" en Portainer y busca la línea:
+#    "Started session with info: XXXXX-XXXXX-XXXXX-XXXXX"
+# ==============================================================================
+
+services:
+  ckserver:
+    container_name: corekeeper-server
+    image: escaping/core-keeper-dedicated:latest
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - WORLD_NAME=MiMundo     # Nombre que aparecerá en el juego
+      - WORLD_INDEX=0          # Define el número del archivo de mundo (0.world)
+      - WORLD_MODE=0           # 0=Normal, 1=Hard, 2=Creative, 3=Casual
+      - MAX_PLAYERS=10         # Límite de jugadores simultáneos
+      - SEASON=-1              # Modo automático según calendario del NAS
+    ports:
+      - 27015:27015/udp
+      - 27016:27016/udp
+    volumes:
+      # Datos de partida, configuración y mundos
+      - /mnt/APPs/CoreKeeper/data:/home/steam/core-keeper-data
+      # Sincronización horaria para eventos automáticos
+      - /etc/localtime:/etc/localtime:ro
