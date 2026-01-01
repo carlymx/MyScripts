@@ -1,12 +1,46 @@
-name: <your project name>
+# ==============================================================================
+# SERVIDOR MULTIMEDIA MINIDLNA (vladgh/minidlna)
+# Versión: 2026.1 | Protocolo: DLNA/UPnP para Smart TVs y Consolas
+# ==============================================================================
+#
+# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
+#    Asegúrate de que tus carpetas de contenido tengan permisos de lectura:
+#    sudo chmod -R 755 /mnt/Multimedia
+#
+# 2. RED (Network Mode: Host):
+#    Este contenedor usa "network_mode: host" por una razón crítica:
+#    El protocolo DLNA utiliza "multicast" para que las TVs detecten el servidor.
+#    En modo "bridge" (por defecto), la mayoría de Smart TVs NO lo encontrarán.
+#
+# 3. GESTIÓN DE CONTENIDO:
+#    Para forzar un re-escaneo de la biblioteca si no aparecen archivos nuevos,
+#    puedes reiniciar el stack en Portainer.
+#
+# 4. COMPATIBILIDAD:
+#    Ideal para reproducir contenido directamente desde el menú "Fuentes" o 
+#    "Media Player" de televisores LG, Samsung, Sony, PS5 o Xbox.
+# ==============================================================================
+
 services:
   minidlna:
-    environment:
-      - MINIDLNA_MEDIA_DIR=/media
-      - MINIDLNA_FRIENDLY_NAME=MyDLNA
-    image: vladgh/minidlna
-    network_mode: host
+    container_name: mydlna-server
+    image: vladgh/minidlna:latest
     restart: always
+    network_mode: host
+    environment:
+      # Nombre que aparecerá en tu Smart TV
+      - MINIDLNA_FRIENDLY_NAME=Mi_NAS_Multimedia
+      # Directorio interno donde se escanean los archivos
+      - MINIDLNA_MEDIA_DIR=/media
+      # Intervalo de escaneo automático (en segundos)
+      - MINIDLNA_NOTIFY_INTERVAL=60
     volumes:
-      - /mnt/videos:/media
+      # Mapea aquí tu carpeta real de películas/series del NAS
+      # Ejemplo: /mnt/Multimedia/Videos mapeado a /media
+      - /mnt/Multimedia:/media:ro
+      # Sincronización horaria
+      - /etc/localtime:/etc/localtime:ro
+
+# NOTA: Al usar network_mode: host, no es necesario (ni permitido) definir 
+# la sección "ports:". El contenedor usará el puerto estándar 8200 del NAS.
 
