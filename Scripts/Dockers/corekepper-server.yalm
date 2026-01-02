@@ -50,8 +50,10 @@ services:
          #
          # -1 = Automático (Usa la fecha del sistema)
          #  0 = Ninguna (Desactiva eventos)
+         #  NOTA: Para eventos automáticos comentar la línea "- SEASON=0" y configurar
+         #        el archivo ServerConfig.json como: "seasonOverride": -1
          # ==============================================================================
-      - SEASON=-1              # Modo automático según calendario del NAS
+      #- SEASON=-1              # Modo automático según calendario del NAS
     ports:
       - 27015:27015/udp
       - 27016:27016/udp
