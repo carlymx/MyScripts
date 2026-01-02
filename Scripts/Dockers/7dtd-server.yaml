@@ -69,6 +69,13 @@ services:
       nofile:
         hard: '10240'
         soft: '10240'
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'       # Máximo de 4 núcleos del Ryzen 1700x
+          memory: 12G       # Límite máximo para evitar que bloquee el NAS
+        reservations:
+          memory: 8G        # RAM mínima garantizada para el servidor
     volumes:
       - /mnt/APPs/7DTD-server/saves:/home/sdtdserver/.local/share/7DaysToDie/
       - >-
