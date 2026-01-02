@@ -37,6 +37,20 @@ services:
       - WORLD_INDEX=0          # Define el número del archivo de mundo (0.world)
       - WORLD_MODE=0           # 0=Normal, 1=Hard, 2=Creative, 3=Casual
       - MAX_PLAYERS=10         # Límite de jugadores simultáneos
+         # ==============================================================================
+         # CALENDARIO DE ESTACIONES (CRONOLÓGICO 2026)
+         # ==============================================================================
+         #  7 = Año Nuevo Lunar: 25 de Enero - 15 de Febrero
+         #  4 = San Valentín: 10 de Febrero - 20 de Febrero
+         #  5 = Aniversario: 4 de Marzo - 20 de Marzo
+         #  1 = Pascua (Easter): 20 de Marzo - 10 de Abril
+         #  6 = Festival del Cerezo: 20 de Marzo - 10 de Abril
+         #  2 = Halloween: 20 de Octubre - 7 de Noviembre
+         #  3 = Navidad (Christmas): 13 de Diciembre - 7 de Enero (ACTIVA)
+         #
+         # -1 = Automático (Usa la fecha del sistema)
+         #  0 = Ninguna (Desactiva eventos)
+         # ==============================================================================
       - SEASON=-1              # Modo automático según calendario del NAS
     ports:
       - 27015:27015/udp
