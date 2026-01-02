@@ -55,6 +55,13 @@ services:
     ports:
       - 27015:27015/udp
       - 27016:27016/udp
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'       # Máximo de núcleos que puede usar
+          memory: 4G        # Límite máximo de RAM
+        reservations:
+          memory: 2G        # RAM que el NAS reserva para este servidor
     volumes:
       # Datos de partida, configuración y mundos
       - /mnt/APPs/CoreKeeper/data:/home/steam/core-keeper-data
