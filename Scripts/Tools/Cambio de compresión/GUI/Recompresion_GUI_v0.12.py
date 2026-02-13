@@ -7,22 +7,44 @@
                               |_|
 
 Fecha: 26 de julio de 2024
-Versión: v0.11
+Versión: v0.12
 Email: carlymx@gmail.com
 """
 
 import os
+import subprocess
+import sys
+import shutil
+import platform
+import logging
+
+# Verificar e instalar tkinter ANTES de importarlo
+def check_and_install_tkinter():
+    try:
+        import tkinter
+    except ImportError:
+        print("Tkinter no está instalado. Intentando instalar...")
+        if sys.platform.startswith('linux'):
+            try:
+                subprocess.check_call(["sudo", "apt-get", "install", "-y", "python3-tk"])
+                print("Tkinter instalado correctamente.")
+            except subprocess.CalledProcessError:
+                print("No se pudo instalar Tkinter. Por favor, instálelo manualmente.")
+                print("Ejemplo: sudo apt-get install python3-tk")
+                sys.exit(1)
+        else:
+            print("No se puede instalar Tkinter automáticamente en este sistema operativo. Por favor, instálelo manualmente.")
+            sys.exit(1)
+
+check_and_install_tkinter()
+
+# Ahora podemos importar tkinter y el resto de módulos
 import tkinter as tk
 from tkinter import filedialog, ttk, scrolledtext, messagebox
 import zipfile
 import tarfile
 import tempfile
-import subprocess
-import sys
-import shutil
 import threading
-import platform
-import logging
 
 # Configuración del logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -68,23 +90,7 @@ def check_rar_availability():
     return True
 
 def check_and_install_dependencies():
-    # Verificar e instalar tkinter
-    try:
-        import tkinter
-    except ImportError:
-        print("Tkinter no está instalado. Intentando instalar...")
-        if sys.platform.startswith('linux'):
-            try:
-                subprocess.check_call(["sudo", "apt-get", "install", "-y", "python3-tk"])
-                print("Tkinter instalado correctamente.")
-            except subprocess.CalledProcessError:
-                print("No se pudo instalar Tkinter. Por favor, instálelo manualmente.")
-                sys.exit(1)
-        else:
-            print("No se puede instalar Tkinter automáticamente en este sistema operativo. Por favor, instálelo manualmente.")
-            sys.exit(1)
-
-    # Verificar e instalar otras dependencias
+    # Verificar e instalar dependencias de Python
     dependencies = ['py7zr', 'rarfile']
     for dep in dependencies:
         try:
