@@ -1,46 +1,207 @@
+# MiniDLNA en Docker (TrueNAS) — guía de instalación desde cero
+
+Guía genérica y compartible para levantar un servidor DLNA/UPnP con la
+imagen `vladgh/minidlna` sobre TrueNAS SCALE 24.x (vale para cualquier
+Docker con modo `host`: Portainer, compose clásico, etc.).
+
+Documentación oficial de la imagen:
+<https://github.com/vladgh/docker_base_images/tree/main/minidlna>
+
+---
+
+## 1. TrueNAS desde cero (resumen)
+
+1. Instala TrueNAS SCALE y deja la red fija (o reserva DHCP) para el NAS.
+2. Crea el pool de datos y el dataset de vídeos (p. ej. `/mnt/tu-pool/videos`).
+3. Dale permiso de lectura al contenido:
+   ```bash
+   sudo chmod -R 755 /mnt/tu-pool/videos
+   ```
+4. Averigua el **nombre** de tu interfaz LAN (lo necesitarás abajo):
+   ```bash
+   ip -br addr
+   # ejemplo de salida: enp37s0  UP  192.168.0.118/24 ...
+   # el nombre es "enp37s0" (en tu equipo puede ser eth0, eno1, ...)
+   ```
+5. Activa SSH o usa la shell web para poder ejecutar `docker`.
+
+---
+
+## 2. El YAML (formato comentado, listo para usar)
+
+```yaml
 # ==============================================================================
 # SERVIDOR MULTIMEDIA MINIDLNA (vladgh/minidlna)
-# Versión: 2026.1 | Protocolo: DLNA/UPnP para Smart TVs y Consolas
+# Versión: 2026.2 | Protocolo: DLNA/UPnP para Smart TVs y consolas
 # ==============================================================================
 #
-# 1. PREPARACIÓN DE DIRECTORIOS (Vía Terminal en NAS):
-#    Asegúrate de que tus carpetas de contenido tengan permisos de lectura:
-#    sudo chmod -R 755 /mnt/Multimedia
+# 1. INTERFAZ DE RED (lee esto primero, es lo que más falla):
+#    MiniDLNA debe anunciarse SOLO por tu interfaz LAN. Sin fijarla, intenta
+#    el multicast también por las interfaces virtuales de Docker (br-*) y el
+#    log se llena de errores "sendto ... No such device".
+#    Usa el NOMBRE de la interfaz, NO su IP: con la IP deduce máscara /32,
+#    solo se oye a sí mismo e ignora al resto de la red con
+#    "Ignoring SSDP M-SEARCH on other interface".
+#    Averigua el nombre con:  ip -br addr
 #
-# 2. RED (Network Mode: Host):
-#    Este contenedor usa "network_mode: host" por una razón crítica:
-#    El protocolo DLNA utiliza "multicast" para que las TVs detecten el servidor.
-#    En modo "bridge" (por defecto), la mayoría de Smart TVs NO lo encontrarán.
+# 2. MODO DE RED (network_mode: host):
+#    El protocolo DLNA usa "multicast" para que las TVs detecten el servidor.
+#    En modo "bridge" (por defecto en Docker) la mayoría de Smart TVs NO lo
+#    encontrarán. La propia imagen lo exige: el contenedor debe correr en
+#    modo host para recibir los paquetes UPnP.
+#    En modo host NO se define la sección "ports:" (ni está permitido):
+#    el contenedor usa directamente el puerto 8200 del anfitrión.
 #
-# 3. GESTIÓN DE CONTENIDO:
-#    Para forzar un re-escaneo de la biblioteca si no aparecen archivos nuevos,
-#    puedes reiniciar el stack en Portainer.
+# 3. CONTENIDO (volúmenes):
+#    Mapea tu carpeta real de vídeos a /media. El ":ro" (solo lectura) basta:
+#    MiniDLNA solo lee (su base de datos vive en /minidlna/cache).
+#    Para forzar un re-escaneo si no aparecen archivos nuevos, reinicia el
+#    contenedor: la base se reconstruye al arrancar.
 #
-# 4. COMPATIBILIDAD:
-#    Ideal para reproducir contenido directamente desde el menú "Fuentes" o 
-#    "Media Player" de televisores LG, Samsung, Sony, PS5 o Xbox.
+# 4. ANUNCIOS (notify_interval):
+#    Por defecto se anuncia cada 895 s (~15 min). Si tu TV normalmente está
+#    apagada y la enciendes solo para ver algo, puede tardar en aparecer:
+#    con 60 s la verá casi al momento (a costa de un poco más de tráfico).
+#
+# 5. COMPATIBILIDAD:
+#    Verificado con TVs Samsung/LG/Sony, PS5, Xbox, VLC y Windows.
+#    OJO: los gestores de archivos de Linux (p. ej. Dolphin) NO muestran
+#    servidores DLNA por diseño (su "Servicios de red" solo enseña DNS-SD,
+#    no UPnP/SSDP). Para DLNA usa VLC: Ver → Lista de reproducción →
+#    Red local → Universal Plug'n'Play.
+#
+# 6. DEPURA (solo si algo falla):
+#    Añade "- MINIDLNA_LOG_LEVEL=debug", redespliega, reproduce el fallo y
+#    mira "docker logs". QUÍTALO después (genera mucho ruido con inotify).
+#    Pistas del log: "bad MAN header" = el cliente envía un MAN malformado
+#    (el único válido es MAN: "ssdp:discover"; ns=01);
+#    "on other interface" = la interfaz o su máscara no cubren al cliente
+#    (revisa el punto 1).
+#
+# 7. VARIAS CARPETAS (opcional, ver ejemplo en "environment" y "volumes"):
+#    una variable MINIDLNA_MEDIA_DIR_<n> por carpeta (el sufijo se ignora).
+#    Puedes prefijar el tipo: A=audio, V=vídeo, P=fotos (p. ej. V,/media).
+#    Si las usas, quita o ajusta el MINIDLNA_MEDIA_DIR base para no
+#    escanear dos veces lo mismo.
 # ==============================================================================
 
+name: mydlna
 services:
   minidlna:
-    container_name: mydlna-server
+    # En TrueNAS el nombre del contenedor lo genera la plataforma
+    # (tipo ix-mydlna-minidlna-1). En compose clásico puedes añadir:
+    # container_name: mydlna-server
     image: vladgh/minidlna:latest
     restart: always
     network_mode: host
     environment:
-      # Nombre que aparecerá en tu Smart TV
+      # Nombre que aparecerá en tu Smart TV / VLC
       - MINIDLNA_FRIENDLY_NAME=Mi_NAS_Multimedia
       # Directorio interno donde se escanean los archivos
       - MINIDLNA_MEDIA_DIR=/media
-      # Intervalo de escaneo automático (en segundos)
+      # Interfaz LAN por NOMBRE (¡no IP!) — ver punto 1
+      - MINIDLNA_NETWORK_INTERFACE=enp37s0
+      # Anuncios cada 60 s en vez de 895 s (ver punto 4). Opcional.
       - MINIDLNA_NOTIFY_INTERVAL=60
+      # VARIAS CARPETAS (opcional, ver punto 7): una línea por carpeta.
+      # El sufijo (_1, _2...) se ignora; el prefijo fija el tipo (A/V/P).
+      # - MINIDLNA_MEDIA_DIR_1=V,/media/videos
+      # - MINIDLNA_MEDIA_DIR_2=A,/media/musica
+      # - MINIDLNA_MEDIA_DIR_3=P,/media/fotos
     volumes:
-      # Mapea aquí tu carpeta real de películas/series del NAS
-      # Ejemplo: /mnt/Multimedia/Videos mapeado a /media
-      - /mnt/Multimedia:/media:ro
-      # Sincronización horaria
+      # Tu carpeta real de vídeos mapeada a /media (solo lectura basta)
+      - /mnt/tu-pool/videos:/media:ro
+      # Si usas el punto 7, mapea aquí cada carpeta extra (mismo orden):
+      # - /mnt/tu-pool/videos:/media/videos:ro
+      # - /mnt/tu-pool/musica:/media/musica:ro
+      # - /mnt/tu-pool/fotos:/media/fotos:ro
+      # Sincronización horaria (logs con la hora correcta)
       - /etc/localtime:/etc/localtime:ro
 
-# NOTA: Al usar network_mode: host, no es necesario (ni permitido) definir 
-# la sección "ports:". El contenedor usará el puerto estándar 8200 del NAS.
+# NOTA: con network_mode: host no se define "ports:". MiniDLNA sirve HTTP
+# en el puerto estándar 8200 del anfitrión:
+#   http://<IP-de-tu-NAS>:8200/              → página de estado
+#   http://<IP-de-tu-NAS>:8200/rootDesc.xml  → descriptor UPnP
+```
 
+> La imagen regenera `/etc/minidlna.conf` desde estas variables en cada
+> arranque: **no edites el `.conf` dentro del contenedor**, no persiste.
+> Comprueba que la variable quedó fija con:
+> ```bash
+> docker exec <contenedor> sh -c "grep network_interface /etc/minidlna.conf"
+> # esperado: network_interface=<tu-interfaz>
+> ```
+
+---
+
+## 3. Verificación
+
+### 3.1. El demonio escucha SSDP y el HTTP responde
+
+```bash
+sudo ss -ulnp | grep 1900
+# esperado: ... 239.255.255.250:1900 ... users:(("minidlnad",...))
+
+curl -s http://<IP-de-tu-NAS>:8200/rootDesc.xml | head -5
+# esperado: ... <friendlyName>Mi_NAS_Multimedia</friendlyName> ...
+```
+
+### 3.2. Log limpio
+
+```bash
+docker logs <contenedor> --tail 15
+# NO debe haber líneas "sendto ... No such device"
+```
+
+### 3.3. Descubrimiento SSDP (desde el NAS o desde cualquier PC de la red)
+
+> El `MAN` tiene que ser EXACTAMENTE `"ssdp:discover"; ns=01`.
+> MiniDLNA 1.3.x descarta cualquier otra variante
+> (`Ignoring invalid SSDP M-SEARCH ... [bad MAN header ...]`).
+
+```bash
+timeout 30 python3 -c "
+import socket, time
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(9)
+msg = '\r\n'.join(['M-SEARCH * HTTP/1.1','HOST: 239.255.255.250:1900','MAN: \"ssdp:discover\"; ns=01','MX: 4','ST: urn:schemas-upnp-org:device:MediaServer:1','',''])
+s.sendto(msg.encode(), ('239.255.255.250', 1900))
+start = time.time()
+n = 0
+while time.time() - start < 9:
+    try:
+        d, a = s.recvfrom(65535)
+        n += 1
+        print('RESPUESTA de', a)
+    except socket.timeout:
+        break
+print('total respuestas:', n)
+"
+# esperado: RESPUESTA de ('<IP-de-tu-NAS>', ...) / total respuestas: >= 1
+```
+
+### 3.4. Cliente real
+
+VLC: **Ver → Lista de reproducción → Red local → Universal Plug'n'Play**
+→ aparece el `friendlyName` configurado.
+
+---
+
+## 4. Diagnóstico rápido (chuleta)
+
+| Síntoma en el log / prueba | Causa probable | Acción |
+|---|---|---|
+| `sendto ... No such device` (IPs 172.16.x.x) | Sin `network_interface`: intenta multicast por puentes Docker | Fijar `MINIDLNA_NETWORK_INTERFACE=<nombre-ifz>` |
+| `Ignoring SSDP M-SEARCH on other interface [IP]` | Interfaz puesta como IP (máscara /32: solo se oye a sí mismo) o cliente en otra subred | Usar el NOMBRE de la interfaz, no la IP |
+| `Ignoring invalid SSDP M-SEARCH ... [bad MAN header ...]` | `MAN` malformado (el cliente o tu script) | El `MAN` debe ser `"ssdp:discover"; ns=01` |
+| Ni en local responde | Demonio sordo / puerto cogido por otro proceso | `ss -ulnp \| grep 1900`, reiniciar contenedor |
+| La TV lo ve pero el PC no | Normal si el PC busca mal o filtra multicast | En el PC: permitir SSDP/UPnP en el firewall; probar §3.3 |
+
+---
+
+## 5. Nota para clientes Linux (referencia)
+
+- Para *descubrir* UPnP desde el PC, el firewall debe permitir el tráfico
+  SSDP (p. ej. en firewalld el servicio `upnp-client`).
+- Dolphin y el explorador de archivos **no** sirven para DLNA:
+  usa VLC o Kodi.
