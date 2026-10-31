@@ -1,0 +1,25 @@
+# Runtime artifacts created next to the scripts (never commit these)
+*.AppImage
+*.AppImage.zs-old
+*.part
+freecad-*.svg
+.freecad-*.log
+.freecad-*.lock
+.freecad-*.fix
+.no-*-shortcut
+.no-*-assoc
+.cfg-backup-*/
+# Windows ports (win/): extracted bundles, downloads and extractor
+FreeCAD_*-Windows-*/
+*.7z
+.7zr.exe
+# macOS ports (mac/): disk images and installed-version markers
+*.dmg
+.freecad-*.version
+# Disposable E2E artifacts (regenerated on every run; see docs/E2E-*.md)
+E2E-RESULT-*-windows.log
+E2E-RESULT-*-macos.log
+para la IA.txt
+.e2e-*.part
+.e2e-w.tmp
+.diag-*

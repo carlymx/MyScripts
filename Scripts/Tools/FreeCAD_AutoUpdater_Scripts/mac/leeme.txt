@@ -1,0 +1,65 @@
+FreeCAD AutoUpdater Scripts v0.8.6 (MAC)
+-----------------------------------------------
+
+¿QUÉ ES ESTO?
+-------------
+Estos ficheros instalan y mantienen al día FreeCAD (un programa gratuito
+de diseño 3D) en tu Mac, sin que tengas que instalar nada a mano.
+
+Hay dos versiones:
+- FreeCAD-stable.command → la versión estable (la recomendada).
+- FreeCAD-weekly.command → la versión de desarrollo (novedades cada
+  semana, puede tener fallos).
+
+Para usarlos basta hacer doble clic: se abre la Terminal, el script
+comprueba si hay una versión nueva, la descarga si hace falta y arranca
+FreeCAD. La primera vez te hará dos preguntas: si quieres un acceso en
+el Escritorio y si quieres que los archivos .FCStd se abran con FreeCAD
+al hacer doble clic. Puedes decir que no a todo.
+
+Antes de arrancar guarda una copia de seguridad de tu configuración, así
+que no hay riesgo de perder tus ajustes.
+
+Nota: si tu Mac es antiguo (macOS 11 Big Sur o anterior), las versiones
+nuevas de FreeCAD (1.1+) no pueden funcionar; el script lo detecta solo e
+instala la última que sí es compatible (1.0.2). Te avisará al hacerlo.
+
+¿Y EL RUNNER (run-e2e-tests.sh)?
+--------------------------------
+El "runner" es un comprobador automático: hace 4 pasadas seguidas de los
+scripts (dos rápidas y dos completas, una por cada versión) y anota si todo
+sale bien en unos ficheros de resultados (E2E-RESULT-*.log).
+
+Lo necesitamos porque no tenemos un Mac como el tuyo para probar: sin
+esas pruebas no podemos asegurar que los scripts funcionen fuera de
+nuestro ordenador. No tienes que entender nada de lo que hace; solo
+ejecutarlo (un solo comando), ir haciendo lo que te pida en pantalla (algún
+clic en Sí y algún S/N), decirle si viste los avisos que muestra, y
+enviarnos los ficheros de resultados al terminar.
+
+Tranquilidad: no toca tus documentos ni tu configuración real (las
+pruebas usan una de mentira); el runner instala y desinstala solo lo que
+necesita (es reversible) y al terminar puedes borrar la carpeta entera.
+Las pasadas completas descargan unos cientos de MB: tardan varios minutos,
+déjalo trabajar.
+
+
+------------------------------------------
+
+INSTRUCCIONES (resumen)
+
+Copia la carpeta a un sitio con escritura, abre la Terminal en ella y ejecuta:
+
+chmod +x run-e2e-tests.sh FreeCAD-*.command
+./run-e2e-tests.sh --todo
+
+Hace las 4 pasadas seguidas y te va indicando en pantalla qué hacer (algún
+clic en Sí y responder S/N cuando pregunte; lo demás va solo). Al terminar,
+envíame los 4 ficheros E2E-RESULT-*.log y borra la carpeta.
+
+Si macOS bloquea los ficheros: clic derecho → Abrir → Abrir (una vez por
+fichero).
+
+Para repetir una comprobación rápida sin descargar (~3 min):
+./run-e2e-tests.sh stable
+./run-e2e-tests.sh weekly --auto
